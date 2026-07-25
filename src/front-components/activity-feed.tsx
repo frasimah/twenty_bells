@@ -38,6 +38,12 @@ const SHOW_ATTACHMENTS = readBooleanSetting('SHOW_ATTACHMENTS', true);
 // several — so they get a wider budget than the page itself.
 const LINK_PAGE_SIZE = Math.min(PAGE_SIZE * 4, 200);
 
+// An import or a bulk edit produces the same event on dozens of records at
+// once. One row per record buries everything else, so a burst of identical
+// events by one person collapses into a single line.
+const BULK_THRESHOLD = 5;
+const BULK_WINDOW_MS = 5 * 60 * 1000;
+
 const DEFAULT_SCOPE =
   getApplicationVariable('DEFAULT_SCOPE') === 'all' ? 'all' : 'mine';
 
@@ -169,6 +175,28 @@ const FALLBACK_OBJECT_COLORS = [
 type TimelineRecord = Record<string, unknown>;
 
 type FeedGroup = { key: string; items: TimelineRecord[] };
+
+// Where each stream stopped. `extended` marks that the user has paged past the
+// first screen, which is what stops the poll from rewinding these.
+type FeedCursors = {
+  timeline: string | null;
+  attachments: string | null;
+  extended: boolean;
+};
+
+// REST answers with the rows plus how many there are in total and where the
+// page ended — that is what makes "loaded 96 of 199" and paging possible.
+type Page<K extends string> = {
+  data?: Partial<Record<K, TimelineRecord[]>>;
+  totalCount?: number;
+  pageInfo?: { endCursor?: string; hasNextPage?: boolean };
+};
+
+const nextCursor = (page: Page<string>) =>
+  page.pageInfo?.hasNextPage === true ? (page.pageInfo.endCursor ?? null) : null;
+
+const isVisibleEvent = (item: TimelineRecord) =>
+  typeof item.name !== 'string' || !item.name.startsWith(HIDDEN_EVENT_PREFIX);
 
 type FieldMeta = {
   label: string;
@@ -545,9 +573,8 @@ const getPalette = (colorScheme: 'light' | 'dark') =>
         rail: '#333333',
         hover: '#1F1F1F',
         buttonBackground: 'rgba(255, 255, 255, 0.06)',
-        // twenty-ui `sky` (#95E0FB) at a whisper — the softest blue in the
-        // palette, used only to lift a card under the cursor.
-        cardHover: 'rgba(149, 224, 251, 0.07)',
+        // A card under the cursor is marked by its outline alone — the fill
+        // stays flat so the feed does not flicker as the pointer crosses it.
         cardHoverBorder: 'rgba(149, 224, 251, 0.24)',
         mutedFill: '#3A3A3A',
         mutedGlyph: '#8F8F8F',
@@ -561,7 +588,6 @@ const getPalette = (colorScheme: 'light' | 'dark') =>
         rail: '#E3E3E3',
         hover: '#0000000A',
         buttonBackground: 'rgba(0, 0, 0, 0.035)',
-        cardHover: 'rgba(149, 224, 251, 0.13)',
         cardHoverBorder: 'rgba(70, 98, 213, 0.26)',
         mutedFill: '#F0F0F0',
         mutedGlyph: '#999999',
@@ -696,46 +722,65 @@ const ActivityFeed = () => {
   const [isSeeding, setIsSeeding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  // Pages fetched past the first one. They are kept apart from `items` so the
+  // poll can refresh the newest page without throwing away what was loaded.
+  const [olderItems, setOlderItems] = useState<TimelineRecord[]>([]);
+  const [cursors, setCursors] = useState<FeedCursors>({
+    timeline: null,
+    attachments: null,
+    extended: false,
+  });
+  const [feedTotal, setFeedTotal] = useState(0);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   const loadFeed = useCallback(async () => {
     try {
       const client = new RestApiClient();
 
       const [timeline, attachments] = await Promise.all([
-        client.get<{ data?: { timelineActivities?: TimelineRecord[] } }>(
-          '/rest/timelineActivities',
-          {
-            query: {
-              limit: PAGE_SIZE,
-              depth: 1,
-              order_by: 'happensAt[DescNullsLast]',
-            },
+        client.get<Page<'timelineActivities'>>('/rest/timelineActivities', {
+          query: {
+            limit: PAGE_SIZE,
+            depth: 1,
+            order_by: 'happensAt[DescNullsLast]',
           },
-        ),
+        }),
         SHOW_ATTACHMENTS
-          ? client.get<{ data?: { attachments?: TimelineRecord[] } }>(
-              '/rest/attachments',
-              {
-                query: {
-                  limit: PAGE_SIZE,
-                  depth: 1,
-                  order_by: 'createdAt[DescNullsLast]',
-                },
+          ? client.get<Page<'attachments'>>('/rest/attachments', {
+              query: {
+                limit: PAGE_SIZE,
+                depth: 1,
+                order_by: 'createdAt[DescNullsLast]',
               },
-            )
-          : Promise.resolve({ data: { attachments: [] } }),
+            })
+          : Promise.resolve({ data: { attachments: [] } } as Page<'attachments'>),
       ]);
 
       const events = (timeline.data?.timelineActivities ?? []).filter(
-        (item) =>
-          typeof item.name !== 'string' ||
-          !item.name.startsWith(HIDDEN_EVENT_PREFIX),
+        isVisibleEvent,
       );
 
+      // Deliberately not sliced back to PAGE_SIZE: each stream is already
+      // capped, and cutting the merged list by time dropped every attachment
+      // whenever a burst of newer events filled the window.
       setItems(
-        [...events, ...(attachments.data?.attachments ?? []).map(toAttachmentEvent)]
-          .sort(byHappensAtDesc)
-          .slice(0, PAGE_SIZE),
+        [
+          ...events,
+          ...(attachments.data?.attachments ?? []).map(toAttachmentEvent),
+        ].sort(byHappensAtDesc),
+      );
+      setFeedTotal((timeline.totalCount ?? 0) + (attachments.totalCount ?? 0));
+      // Once the user has paged further back, the poll refreshes the newest
+      // page only — rewinding the cursors here would re-serve pages they
+      // already have.
+      setCursors((prev) =>
+        prev.extended
+          ? prev
+          : {
+              timeline: nextCursor(timeline),
+              attachments: nextCursor(attachments),
+              extended: false,
+            },
       );
       setError(null);
     } catch (caught) {
@@ -744,6 +789,57 @@ const ActivityFeed = () => {
       setIsLoading(false);
     }
   }, []);
+
+  // One screen back. Both streams page independently — a workspace can have
+  // hundreds of files and few events, or the other way round.
+  const loadMore = async () => {
+    setIsLoadingMore(true);
+
+    try {
+      const client = new RestApiClient();
+
+      const [timeline, attachments] = await Promise.all([
+        cursors.timeline === null
+          ? Promise.resolve({} as Page<'timelineActivities'>)
+          : client.get<Page<'timelineActivities'>>('/rest/timelineActivities', {
+              query: {
+                limit: PAGE_SIZE,
+                depth: 1,
+                order_by: 'happensAt[DescNullsLast]',
+                starting_after: cursors.timeline,
+              },
+            }),
+        cursors.attachments === null
+          ? Promise.resolve({} as Page<'attachments'>)
+          : client.get<Page<'attachments'>>('/rest/attachments', {
+              query: {
+                limit: PAGE_SIZE,
+                depth: 1,
+                order_by: 'createdAt[DescNullsLast]',
+                starting_after: cursors.attachments,
+              },
+            }),
+      ]);
+
+      const fetched = [
+        ...(timeline.data?.timelineActivities ?? []).filter(isVisibleEvent),
+        ...(attachments.data?.attachments ?? []).map(toAttachmentEvent),
+      ];
+
+      setOlderItems((prev) => [...prev, ...fetched]);
+      setCursors({
+        timeline:
+          cursors.timeline === null ? null : nextCursor(timeline),
+        attachments:
+          cursors.attachments === null ? null : nextCursor(attachments),
+        extended: true,
+      });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
 
   // Custom objects should read by their own label, not their API name —
   // own metadata is the only place those labels exist.
@@ -1192,10 +1288,20 @@ const ActivityFeed = () => {
     return typeof id === 'string' && myCompanyIds.includes(id);
   };
 
+  // The newest page and everything paged in behind it. Keyed by id: a poll can
+  // land between the two and serve the same event twice.
+  const allItems = [
+    ...new Map(
+      [...items, ...olderItems].map((item) => [String(item.id), item]),
+    ).values(),
+  ].sort(byHappensAtDesc);
+
   // On an enforcing instance the server already scoped the response, so
   // filtering again would only hide records the viewer is entitled to.
   const visibleItems =
-    enforcement !== 'server' && scope === 'mine' ? items.filter(isMine) : items;
+    enforcement !== 'server' && scope === 'mine'
+      ? allItems.filter(isMine)
+      : allItems;
 
   // Tasks view: what is hanging, not what changed. Done tasks are dropped —
   // a finished task is never something the user still owes.
@@ -1255,15 +1361,72 @@ const ActivityFeed = () => {
 
   // Several events on the same record collapse into one row: the newest is
   // shown, the rest hide behind a counter.
+  const describeBulk = (item: TimelineRecord) => {
+    const [subject = '', action = ''] = String(item.name ?? '').split('.');
+    const target = resolveTarget(item);
+
+    return {
+      // The event subject has to stay in the key. A file attached to a deal and
+      // the deal itself both resolve to `opportunity`, so without it a batch of
+      // uploads merged into the deals row and was counted as deals.
+      subject,
+      objectNameSingular: target?.objectNameSingular ?? subject,
+      action,
+      author: String(
+        item.workspaceMemberId ?? readMemberId(item.createdBy) ?? '',
+      ),
+      bucket: Math.floor(
+        new Date(String(item.happensAt)).getTime() / BULK_WINDOW_MS,
+      ),
+    };
+  };
+
+  const bulkCounts = new Map<string, number>();
+
+  for (const item of visibleItems) {
+    const { subject, objectNameSingular, action, author, bucket } =
+      describeBulk(item);
+    const key = `${subject}|${objectNameSingular}|${action}|${author}|${bucket}`;
+
+    bulkCounts.set(key, (bulkCounts.get(key) ?? 0) + 1);
+  }
+
+  const bulkEntries: { key: string; items: TimelineRecord[] }[] = [];
+  const bulkIndex = new Map<string, { key: string; items: TimelineRecord[] }>();
   const groups: FeedGroup[] = [];
   const groupIndex = new Map<string, FeedGroup>();
 
   for (const item of visibleItems) {
+    const { subject, objectNameSingular, action, author, bucket } =
+      describeBulk(item);
+    const bulkKey = `${subject}|${objectNameSingular}|${action}|${author}|${bucket}`;
+
+    if ((bulkCounts.get(bulkKey) ?? 0) >= BULK_THRESHOLD) {
+      const existingBulk = bulkIndex.get(bulkKey);
+
+      if (existingBulk === undefined) {
+        const entry = { key: bulkKey, items: [item] };
+
+        bulkIndex.set(bulkKey, entry);
+        bulkEntries.push(entry);
+      } else {
+        existingBulk.items.push(item);
+      }
+
+      continue;
+    }
+
     const target = resolveTarget(item);
+    // A file is an event in its own right, not another edit of the record it
+    // hangs on. Sharing the record's key put it behind the "N more events"
+    // counter — and since attachments are older than the latest edits, it was
+    // never the row that got shown.
     const key =
-      target !== null
-        ? `${target.objectNameSingular}:${target.recordId}`
-        : `event:${String(item.id)}`;
+      item.name === 'linked-attachment.created'
+        ? `attachment:${String(item.id)}`
+        : target !== null
+          ? `${target.objectNameSingular}:${target.recordId}`
+          : `event:${String(item.id)}`;
     const existing = groupIndex.get(key);
 
     if (existing === undefined) {
@@ -1277,8 +1440,21 @@ const ActivityFeed = () => {
   }
 
   const unreadCount = visibleItems.filter(isUnread).length;
-  const unreadGroups = groups.filter((group) => group.items.some(isUnread));
-  const readGroups = groups.filter((group) => !group.items.some(isUnread));
+
+  type FeedEntry =
+    | { kind: 'group'; key: string; items: TimelineRecord[] }
+    | { kind: 'bulk'; key: string; items: TimelineRecord[] };
+
+  const newestOf = (items: TimelineRecord[]) =>
+    Math.max(...items.map((i) => new Date(String(i.happensAt)).getTime()));
+
+  const entries: FeedEntry[] = [
+    ...groups.map((g) => ({ kind: 'group' as const, ...g })),
+    ...bulkEntries.map((b) => ({ kind: 'bulk' as const, ...b })),
+  ].sort((a, b) => newestOf(b.items) - newestOf(a.items));
+
+  const unreadEntries = entries.filter((e) => e.items.some(isUnread));
+  const readEntries = entries.filter((e) => !e.items.some(isUnread));
 
   const describe = (item: TimelineRecord) => {
     const eventName = typeof item.name === 'string' ? item.name : '';
@@ -1431,11 +1607,38 @@ const ActivityFeed = () => {
     </>
   );
 
+  // Tasks and notes hang off the record they were filed under, and that
+  // record — usually a deal — is what the reader is actually following.
+  // A deal matters more than the contact it goes through, so it leads.
+  const LINK_RANK: Record<string, number> = { opportunity: 0, company: 1 };
+
+  const relatedRecords = (objectNameSingular: string, recordId: string) => {
+    const rows =
+      objectNameSingular === 'task'
+        ? taskTargets.filter((link) => String(link.taskId) === recordId)
+        : objectNameSingular === 'note'
+          ? noteTargets.filter((link) => String(link.noteId) === recordId)
+          : [];
+
+    return rows
+      .map((link) => resolveTarget(link))
+      .filter((link): link is ResolvedTarget => link !== null)
+      .sort(
+        (a, b) =>
+          (LINK_RANK[a.objectNameSingular] ?? 2) -
+          (LINK_RANK[b.objectNameSingular] ?? 2),
+      )
+      .slice(0, 2);
+  };
+
   const renderHead = (item: TimelineRecord, unread: boolean) => {
     const described = describe(item);
     const { target, author, objectLabel, actionLabel, objectNameSingular } =
       described;
     const isBroken = target === null;
+    const recordLinks = isBroken
+      ? []
+      : relatedRecords(objectNameSingular, String(target.recordId));
     const isActive = unread && !isBroken;
     const classColor = getObjectColor(objectNameSingular);
     const dotColor = isActive ? classColor : palette.rail;
@@ -1582,6 +1785,63 @@ const ActivityFeed = () => {
             {isBroken && ` · ${t('record deleted, cannot open')}`}
           </div>
 
+          {recordLinks.length > 0 && (
+            <div
+              style={{
+                marginTop: '5px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                flexWrap: 'wrap',
+                rowGap: '5px',
+              }}
+            >
+              {recordLinks.map((link) => {
+                const linkColor = getObjectColor(link.objectNameSingular);
+
+                return (
+                  <span
+                    key={link.recordId}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openRecord(link);
+                    }}
+                    title={t('Open: {label}', { label: link.label })}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      maxWidth: '180px',
+                      padding: '1px 7px 1px 3px',
+                      borderRadius: '4px',
+                      background: `${linkColor}14`,
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    <InlineAvatar
+                      size={14}
+                      label={link.label}
+                      color={`${linkColor}2E`}
+                      textColor={linkColor}
+                      avatarUrl={link.avatarUrl}
+                    />
+                    <span
+                      style={{
+                        fontSize: '0.92rem',
+                        color: palette.textMid,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                    >
+                      {link.label}
+                    </span>
+                  </span>
+                );
+              })}
+            </div>
+          )}
+
           {renderPayload(item, described, isActive ? classColor : palette.rail)}
         </div>
       </div>
@@ -1721,18 +1981,14 @@ const ActivityFeed = () => {
         onMouseEnter={() => setHoveredCard(cardKey)}
         onMouseLeave={() => setHoveredCard(null)}
         style={{
-          margin: '10px 12px',
+          margin: '16px 12px',
           border: `1px solid ${
             isCardHovered ? palette.cardHoverBorder : palette.border
           }`,
           borderRadius: '10px',
-          background: isCardHovered
-            ? palette.cardHover
-            : colorScheme === 'dark'
-              ? '#1B1B1B'
-              : '#FFFFFF',
+          background: colorScheme === 'dark' ? '#1B1B1B' : '#FFFFFF',
           overflow: 'hidden',
-          transition: 'background 140ms ease, border-color 140ms ease',
+          transition: 'border-color 140ms ease',
         }}
       >
       <div
@@ -2087,18 +2343,14 @@ const ActivityFeed = () => {
         onMouseEnter={() => setHoveredCard(cardKey)}
         onMouseLeave={() => setHoveredCard(null)}
         style={{
-          margin: '10px 12px',
+          margin: '16px 12px',
           border: `1px solid ${
             isCardHovered ? palette.cardHoverBorder : palette.border
           }`,
           borderRadius: '10px',
-          background: isCardHovered
-            ? palette.cardHover
-            : colorScheme === 'dark'
-              ? '#1B1B1B'
-              : '#FFFFFF',
+          background: colorScheme === 'dark' ? '#1B1B1B' : '#FFFFFF',
           overflow: 'hidden',
-          transition: 'background 140ms ease, border-color 140ms ease',
+          transition: 'border-color 140ms ease',
         }}
       >
         <div
@@ -2240,6 +2492,185 @@ const ActivityFeed = () => {
     </button>
   );
 
+  const renderBulk = (
+    entry: { key: string; items: TimelineRecord[] },
+    unread: boolean,
+  ) => {
+    const [head] = entry.items;
+    const described = describe(head);
+    const author = described.author;
+    const isExpanded = expandedKeys.includes(entry.key);
+    const classColor = getObjectColor(described.objectNameSingular);
+    const isActive = unread;
+    // Twelve files uploaded to deals is "12 × document", not "12 × Deal": the
+    // target object is what they hang on, not what appeared.
+    const linkedMessage =
+      described.linkedKind === null
+        ? undefined
+        : LINKED_KIND_LABELS[
+            described.linkedKind as keyof typeof LINKED_KIND_LABELS
+          ];
+    const verbMessage =
+      LINKED_ACTION_LABELS[
+        String(head.name ?? '').split('.')[1] as keyof typeof LINKED_ACTION_LABELS
+      ];
+    const bulkLabel =
+      linkedMessage !== undefined ? t(linkedMessage) : described.objectLabel;
+    // `actionLabel` already reads "document added" for linked events, which
+    // would repeat the label above — the bare verb is enough there.
+    const bulkAction =
+      linkedMessage !== undefined && verbMessage !== undefined
+        ? t(verbMessage)
+        : described.actionLabel;
+
+    return (
+      <div
+        key={entry.key}
+        style={{
+          paddingBottom: '10px',
+          borderBottom: SHOW_TIMELINE_RAIL
+            ? 'none'
+            : `1px solid ${palette.border}`,
+        }}
+      >
+        <div style={{ display: 'flex', gap: '11px', padding: '10px 16px 0' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'baseline',
+                justifyContent: 'space-between',
+                gap: '10px',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  minWidth: 0,
+                }}
+              >
+                <InlineAvatar
+                  size={15}
+                  label={bulkLabel}
+                  color={isActive ? `${classColor}22` : palette.mutedFill}
+                  textColor={isActive ? classColor : palette.mutedGlyph}
+                />
+                <span
+                  style={{
+                    fontSize: '0.92rem',
+                    fontWeight: unread ? 500 : 400,
+                    color: palette.text,
+                  }}
+                >
+                  {t('{count} × {object}', {
+                    count: entry.items.length,
+                    object: bulkLabel,
+                  })}
+                </span>
+                <span
+                  style={{
+                    fontSize: '0.92rem',
+                    fontWeight: 400,
+                    color: palette.textLight,
+                  }}
+                >
+                  {bulkAction}
+                </span>
+              </div>
+
+              <span
+                style={{
+                  fontSize: '0.92rem',
+                  fontWeight: 400,
+                  color: palette.textLight,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {formatAgo(String(head.happensAt))}
+              </span>
+            </div>
+
+            <div
+              style={{
+                marginTop: '2px',
+                fontSize: '0.92rem',
+                fontWeight: 400,
+                color: palette.textLight,
+              }}
+            >
+              {t('bulk change')}
+              {author !== '' ? ` · ${author}` : ''}
+            </div>
+
+            <button
+              type="button"
+              onClick={() =>
+                setExpandedKeys((keys) =>
+                  keys.includes(entry.key)
+                    ? keys.filter((key) => key !== entry.key)
+                    : [...keys, entry.key],
+                )
+              }
+              style={{
+                marginTop: '6px',
+                border: 'none',
+                background: 'transparent',
+                padding: 0,
+                fontFamily: 'inherit',
+                fontSize: '0.92rem',
+                fontWeight: 400,
+                color: palette.textMid,
+                cursor: 'pointer',
+                textDecoration: 'underline',
+              }}
+            >
+              {isExpanded ? t('Collapse') : t('Show records')}
+            </button>
+
+            {isExpanded &&
+              entry.items.slice(0, 20).map((item) => {
+                const target = resolveTarget(item);
+
+                return (
+                  <div
+                    key={String(item.id)}
+                    onClick={
+                      target === null ? undefined : () => openRecord(target)
+                    }
+                    style={{
+                      marginTop: '4px',
+                      fontSize: '0.92rem',
+                      fontWeight: 400,
+                      color: target === null ? palette.textLight : palette.text,
+                      cursor: target === null ? 'default' : 'pointer',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {typeof item.linkedRecordCachedName === 'string' &&
+                    item.linkedRecordCachedName !== ''
+                      ? // A file row names the file; the click still opens the
+                        // record it hangs on, which is where the file lives.
+                        `${item.linkedRecordCachedName}${
+                          target !== null && target.label !== ''
+                            ? ` · ${target.label}`
+                            : ''
+                        }`
+                      : target !== null && target.label !== ''
+                        ? target.label
+                        : bulkLabel}
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderSectionHeader = (label: string, count?: number) => (
     <div
       style={{
@@ -2294,41 +2725,35 @@ const ActivityFeed = () => {
             whiteSpace: 'nowrap',
           }}
         >
-          {view !== 'feed' ? (
-            <>
-              <button
-                type="button"
-                onClick={() => setView('feed')}
-                title={t("Back to the main feed")}
-                style={{
-                  border: 'none',
-                  background: 'transparent',
-                  padding: 0,
-                  fontFamily: 'inherit',
-                  fontSize: '0.92rem',
-                  fontWeight: 400,
-                  color: palette.textLight,
-                  cursor: 'pointer',
-                }}
-              >
-                Лента
-              </button>
-              <span
-                style={{ fontSize: '0.92rem', color: palette.textLight }}
-              >
-                /
-              </span>
-              <span style={{ fontSize: '0.92rem', fontWeight: 600 }}>
-                {view === 'tasks' ? t('Tasks') : 'Buzz'}
-              </span>
-            </>
-          ) : (
-            // A left anchor for the toolbar: without it the controls floated
-            // against the right edge with nothing to line up against. The
-            // panel header above already carries the app name, so this names
-            // the section instead of repeating it.
-            <span style={{ fontSize: '0.92rem', fontWeight: 600 }}>{t('Feed')}</span>
-          )}
+          {/* Three tabs that never move. A breadcrumb here meant the strip was
+              rebuilt on every switch and the whole row jumped sideways. */}
+          <ToolbarButton
+            label={t('Feed')}
+            title={t('Everything that changed in the workspace.')}
+            isActive={view === 'feed'}
+            activeColor={ACCENT_BLUE}
+            onClick={() => setView('feed')}
+            background={palette.buttonBackground}
+            color={palette.textMid}
+          />
+          <ToolbarButton
+            label="Buzz"
+            title={t('Team notes and the comments on them.')}
+            isActive={view === 'buzz'}
+            activeColor={ACCENT_BLUE}
+            onClick={() => setView('buzz')}
+            background={palette.buttonBackground}
+            color={palette.textMid}
+          />
+          <ToolbarButton
+            label={t('Tasks')}
+            title={t('Open tasks: overdue first, then by due date.')}
+            isActive={view === 'tasks'}
+            activeColor={ACCENT_BLUE}
+            onClick={() => setView('tasks')}
+            background={palette.buttonBackground}
+            color={palette.textMid}
+          />
           {view === 'tasks' && overdueTasks.length > 0 && (
             <span
               title={t("Overdue: {count}", { count: overdueTasks.length })}
@@ -2402,27 +2827,6 @@ const ActivityFeed = () => {
         <div
           style={{ display: 'flex', gap: '6px', flexShrink: 0, whiteSpace: 'nowrap' }}
         >
-          {view === 'feed' && (
-            <>
-              <ToolbarButton
-                label="Buzz"
-                title={t("Team notes and the comments on them.")}
-                onClick={() => setView('buzz')}
-                background={palette.buttonBackground}
-                color={palette.textMid}
-              />
-              <ToolbarButton
-                label={t("Tasks")}
-                title={t("Open tasks: overdue first, then by due date.")}
-                onClick={() => setView('tasks')}
-                background={palette.buttonBackground}
-                color={palette.textMid}
-              />
-            </>
-          )}
-
-          <span style={{ width: '6px' }} />
-
           {view === 'buzz' ? (
             // Buzz is the team wall: everyone's notes, always. A personal
             // filter there would contradict what the section is for.
@@ -2487,21 +2891,59 @@ const ActivityFeed = () => {
 
         {view === 'feed' && !isLoading && error === null && items.length === 0 && (
           <div style={{ padding: '16px', fontSize: '0.92rem', color: palette.textLight }}>
-            Пока ничего не происходило. Создайте или измените любую запись —
-            событие появится здесь в течение 15 секунд.
+            {t('Nothing has happened yet. Create or change any record and the event shows up here.')}
           </div>
         )}
 
         {view === 'feed' && (
           <>
-            {unreadGroups.length > 0 &&
-              renderSectionHeader(t('New'), unreadGroups.length)}
-            {unreadGroups.map((group) => renderGroup(group, true))}
+            {unreadEntries.length > 0 &&
+              renderSectionHeader(t('New'), unreadEntries.length)}
+            {unreadEntries.map((entry) =>
+              entry.kind === 'bulk'
+                ? renderBulk(entry, true)
+                : renderGroup(entry, true),
+            )}
 
-            {readGroups.length > 0 &&
-              unreadGroups.length > 0 &&
-              renderSectionHeader(t('Earlier'), readGroups.length)}
-            {readGroups.map((group) => renderGroup(group, false))}
+            {readEntries.length > 0 &&
+              unreadEntries.length > 0 &&
+              renderSectionHeader(t('Earlier'), readEntries.length)}
+            {readEntries.map((entry) =>
+              entry.kind === 'bulk'
+                ? renderBulk(entry, false)
+                : renderGroup(entry, false),
+            )}
+
+            {/* Without this the feed simply ended at the newest page, and every
+                record created earlier than that window was invisible with no
+                sign that anything had been cut. */}
+            {!isLoading && allItems.length > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  padding: '14px 16px 4px',
+                }}
+              >
+                {(cursors.timeline !== null || cursors.attachments !== null) && (
+                  <ToolbarButton
+                    label={isLoadingMore ? t('Loading…') : t('Show more')}
+                    title={t('Load the previous page of events')}
+                    onClick={() => void loadMore()}
+                    background={palette.buttonBackground}
+                    color={palette.textMid}
+                  />
+                )}
+                <span style={{ fontSize: '0.85rem', color: palette.textLight }}>
+                  {t('{loaded} of {total}', {
+                    loaded: allItems.length,
+                    total: feedTotal,
+                  })}
+                </span>
+              </div>
+            )}
           </>
         )}
 

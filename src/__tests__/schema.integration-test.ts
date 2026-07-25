@@ -34,11 +34,13 @@ describe('CoreApiClient', () => {
         id: true,
       },
     });
-    expect(created.createNote.id).toBeDefined();
+    // The generated client types the mutation result as optional, so the
+    // assertion above is what makes the cleanup below safe.
+    expect(created.createNote?.id).toBeDefined();
 
     await client.mutation({
       destroyNote: {
-        __args: { id: created.createNote.id },
+        __args: { id: created.createNote!.id },
         id: true,
       },
     });
