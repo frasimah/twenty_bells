@@ -3186,7 +3186,24 @@ const ActivityFeed = () => {
 
         {view === 'feed' && (
           <>
-            {documents.length === 0 && hiddenDocuments > 0 && (
+            {/* The setting is workspace-wide and easy to forget about. Saying
+                so beats an empty strip that reads as a broken panel. */}
+            {!SHOW_ATTACHMENTS && (
+              <>
+                {renderSectionHeader(t('Documents'), 0)}
+                <div
+                  style={{
+                    padding: '2px 16px 6px',
+                    fontSize: '0.92rem',
+                    color: palette.textLight,
+                  }}
+                >
+                  {t('Turned off in the app settings — SHOW_ATTACHMENTS')}
+                </div>
+              </>
+            )}
+
+            {SHOW_ATTACHMENTS && documents.length === 0 && hiddenDocuments > 0 && (
               <>
                 {renderSectionHeader(t('Documents'), 0)}
                 <div style={{ padding: '2px 16px 6px' }}>
