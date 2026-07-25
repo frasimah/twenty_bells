@@ -1,6 +1,8 @@
 import { defineFrontComponent } from 'twenty-sdk/define';
 import {
   getApplicationVariable,
+  msg,
+  t,
   openSidePanelPage,
   SidePanelPages,
   useColorScheme,
@@ -43,30 +45,30 @@ const DEFAULT_SCOPE =
 // otherwise show up in the feed as noise about the feed.
 const HIDDEN_EVENT_PREFIX = 'feedReadState.';
 
-const ACTION_LABELS: Record<string, string> = {
-  created: 'создана',
-  updated: 'изменена',
-  deleted: 'удалена',
-};
+const ACTION_LABELS = {
+  created: msg('created'),
+  updated: msg('updated'),
+  deleted: msg('deleted'),
+} as const;
 
 // Russian overrides for the standard objects; everything else (including every
 // custom object) takes its label from the workspace's own object metadata.
-const OBJECT_LABELS: Record<string, string> = {
-  person: 'Контакт',
-  company: 'Компания',
-  opportunity: 'Сделка',
-  task: 'Задача',
-  note: 'Заметка',
-};
+const OBJECT_LABELS = {
+  person: msg('Person'),
+  company: msg('Company'),
+  opportunity: msg('Opportunity'),
+  task: msg('Task'),
+  note: msg('Note'),
+} as const;
 
 // Attaching a note or a task to a record emits `linked-<kind>.<action>`, whose
 // target is the record and whose `linkedRecordCachedName` is the note title.
 // This is how comments on a record surface in the timeline.
-const LINKED_KIND_LABELS: Record<string, string> = {
-  note: 'комментарий',
-  task: 'задача',
-  attachment: 'документ',
-};
+const LINKED_KIND_LABELS = {
+  note: msg('comment'),
+  task: msg('task'),
+  attachment: msg('document'),
+} as const;
 
 const SEED_COMPANIES = [
   'Аурум Групп',
@@ -103,11 +105,11 @@ const SEED_DOCUMENTS = [
   'Спецификация оборудования.pdf',
 ] as const;
 
-const LINKED_ACTION_LABELS: Record<string, string> = {
-  created: 'добавлен',
-  updated: 'изменён',
-  deleted: 'откреплён',
-};
+const LINKED_ACTION_LABELS = {
+  created: msg('added'),
+  updated: msg('edited'),
+  deleted: msg('removed'),
+} as const;
 
 // Twenty's own palette (twenty-ui/theme MAIN_COLORS_LIGHT, converted from
 // display-p3), matched to the colours the sidebar already gives each object.
@@ -171,36 +173,6 @@ type FeedGroup = { key: string; items: TimelineRecord[] };
 type FieldMeta = {
   label: string;
   options?: Record<string, { label: string; color: string }>;
-};
-
-const pluralComments = (count: number) => {
-  const tail = count % 10;
-  const teen = count % 100;
-
-  if (tail === 1 && teen !== 11) {
-    return 'комментарий';
-  }
-
-  if (tail >= 2 && tail <= 4 && (teen < 12 || teen > 14)) {
-    return 'комментария';
-  }
-
-  return 'комментариев';
-};
-
-const pluralEvents = (count: number) => {
-  const tail = count % 10;
-  const teen = count % 100;
-
-  if (tail === 1 && teen !== 11) {
-    return 'событие';
-  }
-
-  if (tail >= 2 && tail <= 4 && (teen < 12 || teen > 14)) {
-    return 'события';
-  }
-
-  return 'событий';
 };
 
 type ResolvedTarget = {
@@ -353,26 +325,26 @@ const describeRichTextChange = (beforeRaw: unknown, afterRaw: unknown) => {
   const after = readMarkdown(afterRaw);
 
   if (before === after) {
-    return 'без изменений';
+    return t('no change');
   }
 
   if (before === '') {
-    return `текст добавлен: ${truncate(after)}`;
+    return t('text added: {text}', { text: truncate(after) });
   }
 
   if (after === '') {
-    return 'текст удалён';
+    return t('text removed');
   }
 
   if (after.startsWith(before)) {
-    return `дописано: ${truncate(after.slice(before.length).trim())}`;
+    return t('appended: {text}', { text: truncate(after.slice(before.length).trim()) });
   }
 
   if (before.startsWith(after)) {
-    return 'текст сокращён';
+    return t('text shortened');
   }
 
-  return `переписано: ${truncate(after)}`;
+  return t('rewritten: {text}', { text: truncate(after) });
 };
 
 const byHappensAtDesc = (a: TimelineRecord, b: TimelineRecord) =>
@@ -498,41 +470,45 @@ const formatAgo = (isoDate: string) => {
   const minutes = Math.floor((Date.now() - new Date(isoDate).getTime()) / 60_000);
 
   if (minutes < 1) {
-    return 'только что';
+    return t('just now');
   }
 
   if (minutes < 60) {
-    return `${minutes} мин`;
+    return t('{minutes}m', { minutes });
   }
 
   const hours = Math.floor(minutes / 60);
 
   if (hours < 24) {
-    return `${hours} ч`;
+    return t('{hours}h', { hours });
   }
 
-  return `${Math.floor(hours / 24)} дн`;
+  return t('{days}d', { days: Math.floor(hours / 24) });
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const describeDue = (dueAt: unknown) => {
   if (typeof dueAt !== 'string' || dueAt === '') {
-    return { label: 'без срока', overdueDays: 0, sortKey: Number.MAX_SAFE_INTEGER };
+    return { label: t('no due date'), overdueDays: 0, sortKey: Number.MAX_SAFE_INTEGER };
   }
 
   const due = new Date(dueAt).getTime();
   const days = Math.floor((Date.now() - due) / DAY_MS);
 
   if (days > 0) {
-    return { label: `просрочено на ${days} дн`, overdueDays: days, sortKey: due };
+    return {
+      label: t('{days}d overdue', { days }),
+      overdueDays: days,
+      sortKey: due,
+    };
   }
 
   if (days === 0) {
-    return { label: 'сегодня', overdueDays: 0, sortKey: due };
+    return { label: t('today'), overdueDays: 0, sortKey: due };
   }
 
-  return { label: `через ${-days} дн`, overdueDays: 0, sortKey: due };
+  return { label: t('in {days}d', { days: -days }), overdueDays: 0, sortKey: due };
 };
 
 const getObjectColor = (objectNameSingular: string) => {
@@ -769,7 +745,7 @@ const ActivityFeed = () => {
     }
   }, []);
 
-  // Custom objects should read as "Доставка", not "dostavka" — the workspace's
+  // Custom objects should read by their own label, not their API name —
   // own metadata is the only place those labels exist.
   const loadObjectLabels = useCallback(async () => {
     try {
@@ -1332,15 +1308,28 @@ const ActivityFeed = () => {
       linkedName,
       objectNameSingular,
       changes: extractDiff(item.properties),
-      objectLabel:
-        OBJECT_LABELS[objectNameSingular] ??
-        objectLabels[objectNameSingular] ??
-        objectNameSingular ??
-        'Запись',
-      actionLabel:
-        linkedKind !== null
-          ? `${LINKED_KIND_LABELS[linkedKind] ?? linkedKind} ${LINKED_ACTION_LABELS[action] ?? action}`
-          : (ACTION_LABELS[action] ?? action),
+      objectLabel: (() => {
+        const known = OBJECT_LABELS[objectNameSingular as keyof typeof OBJECT_LABELS];
+
+        return known !== undefined
+          ? t(known)
+          : (objectLabels[objectNameSingular] ?? objectNameSingular ?? t('Record'));
+      })(),
+      actionLabel: (() => {
+        const verb = ACTION_LABELS[action as keyof typeof ACTION_LABELS];
+
+        if (linkedKind === null) {
+          return verb !== undefined ? t(verb) : action;
+        }
+
+        const kind = LINKED_KIND_LABELS[linkedKind as keyof typeof LINKED_KIND_LABELS];
+        const linkVerb =
+          LINKED_ACTION_LABELS[action as keyof typeof LINKED_ACTION_LABELS];
+
+        return `${kind !== undefined ? t(kind) : linkedKind} ${
+          linkVerb !== undefined ? t(linkVerb) : action
+        }`;
+      })(),
     };
   };
 
@@ -1590,7 +1579,7 @@ const ActivityFeed = () => {
                 </span>
               </>
             )}
-            {isBroken && ' · запись удалена, не открыть'}
+            {isBroken && ` · ${t('record deleted, cannot open')}`}
           </div>
 
           {renderPayload(item, described, isActive ? classColor : palette.rail)}
@@ -1690,8 +1679,8 @@ const ActivityFeed = () => {
               }}
             >
               {isExpanded
-                ? 'Свернуть'
-                : `ещё ${rest.length} ${pluralEvents(rest.length)} по этой записи`}
+                ? t('Collapse')
+                : t('{count} more events on this record', { count: rest.length })}
             </button>
           </div>
         )}
@@ -1705,7 +1694,7 @@ const ActivityFeed = () => {
   const renderTask = (task: TimelineRecord) => {
     const due = describeDue(task.dueAt);
     const isOverdue = due.overdueDays > 0;
-    const title = typeof task.title === 'string' ? task.title : 'Без названия';
+    const title = typeof task.title === 'string' ? task.title : t('Untitled');
     const assignee = readDisplayName(task.assignee);
     const classColor = getObjectColor('task');
     // A deal matters more than the contact it goes through, so it leads.
@@ -1855,7 +1844,7 @@ const ActivityFeed = () => {
                     event.stopPropagation();
                     openRecord(link);
                   }}
-                  title={`Открыть: ${link.label}`}
+                  title={t("Open: {label}", { label: link.label })}
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
@@ -1925,7 +1914,7 @@ const ActivityFeed = () => {
                         recordId: String(task.id),
                         label: title,
                       }),
-                    'Открыть задачу',
+                    t('Open task'),
                   ),
               )}
             </div>
@@ -1962,7 +1951,7 @@ const ActivityFeed = () => {
         }
         onMouseEnter={() => setHoveredId(editId)}
         onMouseLeave={() => setHoveredId(null)}
-        title="Показать, к какому месту это написано"
+        title={t("Show what this was written against")}
         style={{
           display: 'flex',
           gap: '8px',
@@ -1988,14 +1977,14 @@ const ActivityFeed = () => {
                 color: palette.text,
               }}
             >
-              {commenter !== '' ? commenter : 'Кто-то'}
+              {commenter !== '' ? commenter : t('Someone')}
             </span>
             <span style={{ fontSize: '0.85rem', color: palette.textLight }}>
               {formatAgo(String(edit.happensAt))}
             </span>
             {parsed.isRewrite && (
               <span style={{ fontSize: '0.85rem', color: palette.textLight }}>
-                переписал текст
+                {t('rewrote the text')}
               </span>
             )}
           </div>
@@ -2085,7 +2074,7 @@ const ActivityFeed = () => {
 
   const renderBuzzPost = (post: (typeof buzzPosts)[number]) => {
     const { note, comments, originalBody } = post;
-    const title = typeof note.title === 'string' ? note.title : 'Без названия';
+    const title = typeof note.title === 'string' ? note.title : t('Untitled');
     const author = readDisplayName(note.createdBy);
     const noteColor = getObjectColor('note');
 
@@ -2138,7 +2127,7 @@ const ActivityFeed = () => {
                   color: palette.text,
                 }}
               >
-                {author !== '' ? author : 'Автор неизвестен'}
+                {author !== '' ? author : t('Unknown author')}
               </div>
               <div style={{ fontSize: '0.85rem', color: palette.textLight }}>
                 {formatAgo(String(note.createdAt))}
@@ -2201,7 +2190,7 @@ const ActivityFeed = () => {
                   edit,
                   parsed,
                   () => openNoteBody(String(note.id)),
-                  'Открыть текст заметки',
+                  t('Open note text'),
                 ),
             )}
           </div>
@@ -2247,7 +2236,7 @@ const ActivityFeed = () => {
         textDecoration: 'underline',
       }}
     >
-      ещё {hidden} {pluralComments(hidden)}
+      {t('{hidden} more comments', { hidden })}
     </button>
   );
 
@@ -2310,7 +2299,7 @@ const ActivityFeed = () => {
               <button
                 type="button"
                 onClick={() => setView('feed')}
-                title="Вернуться к общей ленте изменений"
+                title={t("Back to the main feed")}
                 style={{
                   border: 'none',
                   background: 'transparent',
@@ -2330,7 +2319,7 @@ const ActivityFeed = () => {
                 /
               </span>
               <span style={{ fontSize: '0.92rem', fontWeight: 600 }}>
-                {view === 'tasks' ? 'Задачи' : 'Buzz'}
+                {view === 'tasks' ? t('Tasks') : 'Buzz'}
               </span>
             </>
           ) : (
@@ -2338,11 +2327,11 @@ const ActivityFeed = () => {
             // against the right edge with nothing to line up against. The
             // panel header above already carries the app name, so this names
             // the section instead of repeating it.
-            <span style={{ fontSize: '0.92rem', fontWeight: 600 }}>Лента</span>
+            <span style={{ fontSize: '0.92rem', fontWeight: 600 }}>{t('Feed')}</span>
           )}
           {view === 'tasks' && overdueTasks.length > 0 && (
             <span
-              title={`Просрочено: ${overdueTasks.length}`}
+              title={t("Overdue: {count}", { count: overdueTasks.length })}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -2362,7 +2351,7 @@ const ActivityFeed = () => {
           )}
           {view === 'tasks' && openTasks.length > 0 && (
             <span
-              title={`Всего активных задач: ${openTasks.length}`}
+              title={t("Open tasks in total: {count}", { count: openTasks.length })}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -2401,8 +2390,8 @@ const ActivityFeed = () => {
           )}
           {view === 'feed' && unreadCount > 0 && (
             <ToolbarButton
-              label="Прочитано"
-              title="Отметить все события прочитанными"
+              label={t("Mark all read")}
+              title={t("Mark every event as read")}
               onClick={() => void markAllAsRead()}
               background={palette.buttonBackground}
               color={palette.textMid}
@@ -2417,14 +2406,14 @@ const ActivityFeed = () => {
             <>
               <ToolbarButton
                 label="Buzz"
-                title="Заметки команды и комментарии к ним."
+                title={t("Team notes and the comments on them.")}
                 onClick={() => setView('buzz')}
                 background={palette.buttonBackground}
                 color={palette.textMid}
               />
               <ToolbarButton
-                label="Задачи"
-                title="Показать открытые задачи: сначала просроченные, дальше по сроку."
+                label={t("Tasks")}
+                title={t("Open tasks: overdue first, then by due date.")}
                 onClick={() => setView('tasks')}
                 background={palette.buttonBackground}
                 color={palette.textMid}
@@ -2440,7 +2429,7 @@ const ActivityFeed = () => {
             <></>
           ) : enforcement === 'server' ? (
             <span
-              title="Row-level permissions включены на этом инстансе: доступ ограничивает сам Twenty, панель ничего не доотфильтровывает."
+              title={t("Row-level permissions are on: Twenty scopes the data itself and the panel adds no filtering.")}
               style={{
                 padding: '4px 9px',
                 borderRadius: '4px',
@@ -2452,17 +2441,17 @@ const ActivityFeed = () => {
                 flexShrink: 0,
               }}
             >
-              Права: сервер
+              {t('Access: server')}
             </span>
           ) : (
             <ToolbarButton
-              label="Только мои"
+              label={t("Only mine")}
               isActive={scope === 'mine'}
               activeColor={ACCENT_BLUE}
               title={
                 scope === 'mine'
-                  ? 'Фильтр включён: показано только связанное с вами. Нажмите, чтобы увидеть всё.'
-                  : 'Фильтр выключен: показаны все записи, которые вернул сервер. Нажмите, чтобы оставить только свои.'
+                  ? t('Filter on: only what relates to you. Click to see everything.')
+                  : t('Filter off: everything the server returned. Click to keep only yours.')
               }
               onClick={() => setScope(scope === 'mine' ? 'all' : 'mine')}
               background={palette.buttonBackground}
@@ -2472,8 +2461,8 @@ const ActivityFeed = () => {
 
           {SHOW_SEED_BUTTON && (
             <ToolbarButton
-              label={isSeeding ? 'Создаю…' : '+ Тестовые события'}
-              title="Создаёт контакт, компанию и сделку и меняет каждой по полю. Пишет настоящие записи."
+              label={isSeeding ? t('Creating…') : t('+ Test events')}
+              title={t('Creates a company, a contact and a deal and edits a field on each. Writes real records.')}
               onClick={() => void seedTestEvents()}
               background={palette.buttonBackground}
               color={palette.textMid}
@@ -2486,13 +2475,13 @@ const ActivityFeed = () => {
       <div style={{ flex: 1, overflowY: 'auto', paddingBottom: '12px' }}>
         {isLoading && (
           <div style={{ padding: '16px', fontSize: '0.92rem', color: palette.textLight }}>
-            Загружаю…
+            {t('Loading…')}
           </div>
         )}
 
         {error !== null && (
           <div style={{ padding: '16px', fontSize: '0.92rem', color: '#D45453' }}>
-            Не удалось загрузить ленту: {error}
+            {t('Could not load the feed: {error}', { error })}
           </div>
         )}
 
@@ -2506,12 +2495,12 @@ const ActivityFeed = () => {
         {view === 'feed' && (
           <>
             {unreadGroups.length > 0 &&
-              renderSectionHeader('Новое', unreadGroups.length)}
+              renderSectionHeader(t('New'), unreadGroups.length)}
             {unreadGroups.map((group) => renderGroup(group, true))}
 
             {readGroups.length > 0 &&
               unreadGroups.length > 0 &&
-              renderSectionHeader('Ранее', readGroups.length)}
+              renderSectionHeader(t('Earlier'), readGroups.length)}
             {readGroups.map((group) => renderGroup(group, false))}
           </>
         )}
@@ -2527,7 +2516,7 @@ const ActivityFeed = () => {
                   color: palette.textLight,
                 }}
               >
-                Заметок пока нет.
+                {t('No notes yet.')}
               </div>
             )}
           </>
@@ -2536,12 +2525,12 @@ const ActivityFeed = () => {
         {view === 'tasks' && (
           <>
             {overdueTasks.length > 0 &&
-              renderSectionHeader('Просрочено', overdueTasks.length)}
+              renderSectionHeader(t('Overdue'), overdueTasks.length)}
             {overdueTasks.map(renderTask)}
 
             {upcomingTasks.length > 0 &&
               renderSectionHeader(
-                overdueTasks.length > 0 ? 'По сроку' : 'Ближайшие',
+                overdueTasks.length > 0 ? t('By due date') : t('Upcoming'),
                 upcomingTasks.length,
               )}
             {upcomingTasks.map(renderTask)}
@@ -2554,7 +2543,7 @@ const ActivityFeed = () => {
                   color: palette.textLight,
                 }}
               >
-                Открытых задач нет.
+                {t('No open tasks.')}
               </div>
             )}
           </>
@@ -2567,6 +2556,6 @@ const ActivityFeed = () => {
 export default defineFrontComponent({
   universalIdentifier: ACTIVITY_FEED_FRONT_COMPONENT_UNIVERSAL_IDENTIFIER,
   name: 'activity-feed',
-  description: 'Лента изменений workspace на основе стандартного timelineActivity',
+  description: 'Workspace activity feed built on the standard timelineActivity',
   component: ActivityFeed,
 });

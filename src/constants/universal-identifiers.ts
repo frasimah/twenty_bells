@@ -1,5 +1,5 @@
 export const APP_DISPLAY_NAME = 'The Bell';
-export const APP_DESCRIPTION = 'Лента изменений, заметки команды и просроченные задачи';
+export const APP_DESCRIPTION = 'Activity feed, team notes and overdue tasks';
 export const APPLICATION_UNIVERSAL_IDENTIFIER = '95427093-8188-4051-8f40-a94930b08548';
 export const DEFAULT_ROLE_UNIVERSAL_IDENTIFIER = 'c42e0f90-a77f-41cb-af0e-60273784d211';
 export const MAIN_PAGE_FRONT_COMPONENT_UNIVERSAL_IDENTIFIER =
