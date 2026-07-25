@@ -209,6 +209,9 @@ type Page<K extends string> = {
   pageInfo?: { endCursor?: string; hasNextPage?: boolean };
 };
 
+const nextCursor = (page: Page<string>) =>
+  page.pageInfo?.hasNextPage === true ? (page.pageInfo.endCursor ?? null) : null;
+
 const isVisibleEvent = (item: TimelineRecord) =>
   typeof item.name !== 'string' || !item.name.startsWith(HIDDEN_EVENT_PREFIX);
 
@@ -756,6 +759,14 @@ const ActivityFeed = () => {
   const [error, setError] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [feedTotal, setFeedTotal] = useState(0);
+  // Pages fetched behind the first one. Kept apart from `items` so the poll can
+  // refresh the newest page without throwing away what the reader paged in.
+  const [olderItems, setOlderItems] = useState<TimelineRecord[]>([]);
+  const [cursor, setCursor] = useState<{ value: string | null; extended: boolean }>({
+    value: null,
+    extended: false,
+  });
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   const loadFeed = useCallback(async () => {
     try {
@@ -764,7 +775,7 @@ const ActivityFeed = () => {
       const [timeline, attachments] = await Promise.all([
         client.get<Page<'timelineActivities'>>('/rest/timelineActivities', {
           query: {
-            limit: FEED_LIMIT,
+            limit: PAGE_SIZE,
             depth: 1,
             order_by: 'happensAt[DescNullsLast]',
           },
@@ -797,6 +808,11 @@ const ActivityFeed = () => {
         ].sort(byHappensAtDesc),
       );
       setFeedTotal(timeline.totalCount ?? 0);
+      // Only the first page is refreshed by the poll, so the cursor must not
+      // rewind once the reader has paged further back.
+      setCursor((prev) =>
+        prev.extended ? prev : { value: nextCursor(timeline), extended: false },
+      );
       setError(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
@@ -804,6 +820,43 @@ const ActivityFeed = () => {
       setIsLoading(false);
     }
   }, []);
+
+  // One page further back, never past the cap. Files do not page: they live in
+  // their own strip with its own expander.
+  const loadMore = async () => {
+    if (cursor.value === null || changes.length >= FEED_LIMIT) {
+      return;
+    }
+
+    setIsLoadingMore(true);
+
+    try {
+      const page = await new RestApiClient().get<Page<'timelineActivities'>>(
+        '/rest/timelineActivities',
+        {
+          query: {
+            // A whole page every time. Trimming the request to the remaining
+            // room made the last clicks add one or two rows each; the hard cap
+            // on `changes` does the trimming instead.
+            limit: PAGE_SIZE,
+            depth: 1,
+            order_by: 'happensAt[DescNullsLast]',
+            starting_after: cursor.value,
+          },
+        },
+      );
+
+      setOlderItems((prev) => [
+        ...prev,
+        ...(page.data?.timelineActivities ?? []).filter(isVisibleEvent),
+      ]);
+      setCursor({ value: nextCursor(page), extended: true });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
 
   // Custom objects should read by their own label, not their API name —
   // own metadata is the only place those labels exist.
@@ -1278,9 +1331,19 @@ const ActivityFeed = () => {
     return typeof id === 'string' && myCompanyIds.includes(id);
   };
 
-  // Memoised because hovering a card is a state change, and re-sorting a few
-  // hundred events on every mouse move is work nobody asked for.
-  const allItems = useMemo(() => [...items].sort(byHappensAtDesc), [items]);
+  // The newest page plus everything paged in behind it. Keyed by id: a poll can
+  // land mid-scroll and serve the same event twice. Memoised because hovering a
+  // card is a state change, and re-sorting on every mouse move is work nobody
+  // asked for.
+  const allItems = useMemo(
+    () =>
+      [
+        ...new Map(
+          [...items, ...olderItems].map((item) => [String(item.id), item]),
+        ).values(),
+      ].sort(byHappensAtDesc),
+    [items, olderItems],
+  );
 
   // On an enforcing instance the server already scoped the response, so
   // filtering again would only hide records the viewer is entitled to.
@@ -1423,8 +1486,13 @@ const ActivityFeed = () => {
     [allItems, documents],
   );
 
+  // The cap is enforced here as well as at fetch time: whatever arrives, the
+  // feed never grows past FEED_LIMIT rows of change history.
   const changes = useMemo(
-    () => visibleItems.filter((item) => item.name !== ATTACHMENT_EVENT),
+    () =>
+      visibleItems
+        .filter((item) => item.name !== ATTACHMENT_EVENT)
+        .slice(0, FEED_LIMIT),
     [visibleItems],
   );
 
@@ -3261,6 +3329,35 @@ const ActivityFeed = () => {
                 ? renderBulk(entry, false)
                 : renderGroup(entry, false),
             )}
+
+            {!isLoading && changes.length > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  padding: '14px 16px 4px',
+                }}
+              >
+                {cursor.value !== null && changes.length < FEED_LIMIT && (
+                  <ToolbarButton
+                    label={isLoadingMore ? t('Loading…') : t('Show more')}
+                    title={t('Load the previous page of events')}
+                    onClick={() => void loadMore()}
+                    background={palette.buttonBackground}
+                    color={palette.textMid}
+                  />
+                )}
+                <span style={{ fontSize: '0.85rem', color: palette.textLight }}>
+                  {t('{loaded} of {total} events', {
+                    loaded: changes.length,
+                    total: feedTotal,
+                  })}
+                </span>
+              </div>
+            )}
+
 
             {/* The feed is deliberately capped. Saying so beats a list that
                 just stops, and the total tells you how much history exists. */}

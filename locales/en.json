@@ -18,6 +18,7 @@
   "Filter off: everything the server returned. Click to keep only yours.": "Filter off: everything the server returned. Click to keep only yours.",
   "Filter on: only what relates to you. Click to see everything.": "Filter on: only what relates to you. Click to see everything.",
   "Latest {loaded} of {total} events": "Latest {loaded} of {total} events",
+  "Load the previous page of events": "Load the previous page of events",
   "Loading…": "Loading…",
   "Mark all read": "Mark all read",
   "Mark every event as read": "Mark every event as read",
@@ -40,6 +41,7 @@
   "Person": "Person",
   "Record": "Record",
   "Row-level permissions are on: Twenty scopes the data itself and the panel adds no filtering.": "Row-level permissions are on: Twenty scopes the data itself and the panel adds no filtering.",
+  "Show more": "Show more",
   "Show records": "Show records",
   "Show what this was written against": "Show what this was written against",
   "Someone": "Someone",
@@ -82,5 +84,6 @@
   "{days}d overdue": "{days}d overdue",
   "{hidden} more comments": "{hidden} more comments",
   "{hours}h": "{hours}h",
+  "{loaded} of {total} events": "{loaded} of {total} events",
   "{minutes}m": "{minutes}m"
 }
