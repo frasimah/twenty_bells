@@ -48,6 +48,41 @@
 - **письма и встречи** — у `message` и `calendarEvent` нет связи с `timelineActivity`;
 - **историю удалённых записей** — событие остаётся, но ссылка обрывается, такие строки помечены «запись удалена».
 
+## Установка в свой Twenty
+
+Нужны Node 24 (версия в `.nvmrc`), Yarn 4 и работающий инстанс Twenty.
+
+```bash
+git clone https://github.com/frasimah/twenty_bells.git
+cd twenty_bells
+corepack enable
+yarn install
+```
+
+Дальше нужен API-ключ инстанса: в Twenty откройте **Settings → APIs → Create API key**
+и скопируйте значение — оно показывается один раз.
+
+```bash
+yarn twenty remote:add --as my-crm --url http://localhost:3000 --api-key <ВАШ_КЛЮЧ>
+yarn twenty remote:use my-crm
+yarn twenty apply
+```
+
+`--url` — адрес сервера Twenty, а не фронтенда, если они разнесены. Ключ ложится
+в `~/.twenty/config.json` и в репозиторий не попадает.
+
+`apply` сначала показывает план (что будет создано), затем синхронизирует:
+приложение, роль, технический объект `feedReadState`, фронт-компонент и кнопку
+в командном меню. После этого перезагрузите вкладку CRM — колокольчик появится
+в правом верхнем углу.
+
+Своего инстанса нет? `yarn twenty docker:start` поднимет локальный сервер на
+`http://localhost:2020`, вход `tim@apple.dev` / `tim@apple.dev` — тогда
+`remote:add --local` подхватит его сам.
+
+Обновить приложение после `git pull` — тот же `yarn twenty apply`. Снять —
+`yarn twenty app:uninstall`.
+
 ## Getting started
 
 Setup instructions live in [SETUP.md](SETUP.md).
