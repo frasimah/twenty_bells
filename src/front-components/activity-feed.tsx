@@ -984,58 +984,71 @@ const ActivityFeed = () => {
 
   // What a task or a note hangs on — a deal, a company, a contact. The to-many
   // link is not expanded on the record itself, so it is read separately.
-  // This is structural data: it changes when somebody re-files a record, not
-  // when they edit one, so it is refreshed on tab switches rather than on every
-  // poll — at depth 1 these two requests alone were 700 KB every 15 seconds.
-  const loadLinks = useCallback(async () => {
+  //
+  // Only for the records actually on screen. Reading the two hundred newest
+  // links blind cost 700 KB per call and kept every one of them alive in
+  // memory; asking by id costs a few kilobytes and returns exactly what the
+  // chips need.
+  const loadLinks = useCallback(async (taskIds: string[], noteIds: string[]) => {
     try {
       const client = new RestApiClient();
 
-      const [taskResponse, noteResponse, attachments] = await Promise.all([
-        client.get<{ data?: { taskTargets?: TimelineRecord[] } }>(
-          '/rest/taskTargets',
-          {
-            // The page caps at 200, so newest links first — an old link that
-            // falls outside the window simply is not shown.
-            query: {
-              limit: LINK_PAGE_SIZE,
-              depth: 1,
-              order_by: 'createdAt[DescNullsLast]',
-            },
-          },
-        ),
-        client.get<{ data?: { noteTargets?: TimelineRecord[] } }>(
-          '/rest/noteTargets',
-          {
-            query: {
-              limit: LINK_PAGE_SIZE,
-              order_by: 'createdAt[DescNullsLast]',
-            },
-          },
-        ),
-        SHOW_ATTACHMENTS
-          ? client.get<{ data?: { attachments?: TimelineRecord[] } }>(
-              '/rest/attachments',
+      const [taskResponse, noteResponse] = await Promise.all([
+        taskIds.length === 0
+          ? Promise.resolve({ data: { taskTargets: [] } })
+          : client.get<{ data?: { taskTargets?: TimelineRecord[] } }>(
+              '/rest/taskTargets',
               {
-                // At fifty the newest files were all on contacts and companies,
-                // and documents filed under tasks or notes never showed up.
                 query: {
-                  limit: FEED_LIMIT,
+                  filter: `taskId[in]:[${taskIds.join(',')}]`,
+                  limit: LINK_PAGE_SIZE,
                   depth: 1,
-                  order_by: 'createdAt[DescNullsLast]',
                 },
               },
-            )
-          : Promise.resolve({ data: { attachments: [] } }),
+            ),
+        noteIds.length === 0
+          ? Promise.resolve({ data: { noteTargets: [] } })
+          : client.get<{ data?: { noteTargets?: TimelineRecord[] } }>(
+              '/rest/noteTargets',
+              {
+                query: {
+                  filter: `noteId[in]:[${noteIds.join(',')}]`,
+                  limit: LINK_PAGE_SIZE,
+                },
+              },
+            ),
       ]);
 
       setTaskTargets(taskResponse.data?.taskTargets ?? []);
       setNoteTargets(noteResponse.data?.noteTargets ?? []);
-      setDocumentItems(
-        (attachments.data?.attachments ?? []).map(toAttachmentEvent),
-      );
     } catch {
       // Missing links only cost the chips, so a failure here stays silent.
+    }
+  }, []);
+
+  const loadDocuments = useCallback(async () => {
+    if (!SHOW_ATTACHMENTS) {
+      return;
+    }
+
+    try {
+      const response = await new RestApiClient().get<{
+        data?: { attachments?: TimelineRecord[] };
+      }>('/rest/attachments', {
+        // At fifty the newest files were all on contacts and companies, and
+        // documents filed under tasks or notes never showed up.
+        query: {
+          limit: FEED_LIMIT,
+          depth: 1,
+          order_by: 'createdAt[DescNullsLast]',
+        },
+      });
+
+      setDocumentItems(
+        (response.data?.attachments ?? []).map(toAttachmentEvent),
+      );
+    } catch {
+      // The strip stays empty; the change feed is unaffected.
     }
   }, []);
 
@@ -1137,11 +1150,10 @@ const ActivityFeed = () => {
     void loadViewer();
   }, [loadReadState, loadObjectLabels, loadViewer]);
 
-  // Links are shared by all three tabs but change only when a record is
-  // re-filed, so a tab switch is a frequent enough moment to refresh them.
+  // Files change rarely, so they ride the tab switch rather than the poll.
   useEffect(() => {
-    void loadLinks();
-  }, [loadLinks, view]);
+    void loadDocuments();
+  }, [loadDocuments, view]);
 
   // Only the tab in front of the user is polled. Refreshing all three every
   // 15 seconds meant 1.7 MB of JSON per cycle — most of it for screens nobody
@@ -1491,6 +1503,40 @@ const ActivityFeed = () => {
       documents.length,
     [allItems, documents],
   );
+
+  // Which records the chips will actually be asked about. The signature keeps
+  // the effect from refiring when the same set comes back in another order.
+  const linkedIds = useMemo(() => {
+    const taskIds = new Set<string>();
+    const noteIds = new Set<string>();
+
+    for (const item of allItems) {
+      if (typeof item.targetTaskId === 'string' && item.targetTaskId !== '') {
+        taskIds.add(item.targetTaskId);
+      }
+
+      if (typeof item.targetNoteId === 'string' && item.targetNoteId !== '') {
+        noteIds.add(item.targetNoteId);
+      }
+    }
+
+    for (const task of tasks) {
+      taskIds.add(String(task.id));
+    }
+
+    for (const note of notes) {
+      noteIds.add(String(note.id));
+    }
+
+    return { taskIds: [...taskIds].sort(), noteIds: [...noteIds].sort() };
+  }, [allItems, tasks, notes]);
+
+  const linkSignature = `${linkedIds.taskIds.join(',')}|${linkedIds.noteIds.join(',')}`;
+
+  useEffect(() => {
+    void loadLinks(linkedIds.taskIds, linkedIds.noteIds);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkSignature]);
 
   // The cap is enforced here as well as at fetch time: whatever arrives, the
   // feed never grows past FEED_LIMIT rows of change history.
