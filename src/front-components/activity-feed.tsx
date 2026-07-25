@@ -14,25 +14,34 @@ import { RestApiClient } from 'twenty-client-sdk/rest';
 // set, several megabytes of it. twenty-ui re-exports a curated subset, and the
 // per-format `IconFileTypePdf` family is not part of it — those are drawn
 // below. These two are, and a link is exactly what they mean.
-import { IconBrandGoogle, IconLink } from 'twenty-ui/icon';
+import { IconBrandGoogle, IconFile, IconLink } from 'twenty-ui/icon';
 
 import { ACTIVITY_FEED_FRONT_COMPONENT_UNIVERSAL_IDENTIFIER } from 'src/constants/universal-identifiers';
 
 // Everything below comes from the app's Settings tab, with the manifest
-// default as the fallback for a workspace that never touched the setting.
+// default as the fallback.
 //
-// The SDK's getter is typed `string | undefined`, but it does
-// `JSON.parse(process.env.applicationVariables)[key]` — a BOOLEAN variable
-// comes back as a real `true`, not as `'true'`. Comparing it to the string
-// silently turned SHOW_ATTACHMENTS off and kept every file out of the feed.
+// The host injects the values still encrypted — `enc:v2:<workspace>:<blob>` —
+// and nothing in twenty-sdk or twenty-client-sdk decrypts them, so a front
+// component simply cannot read what an admin typed. Verified by printing the
+// raw payload in the panel. Treating a ciphertext as a value is what turned
+// SHOW_ATTACHMENTS off and kept every file out of the feed: the string is
+// neither `'true'` nor a number, so every setting silently read as false or
+// NaN. Until Twenty decrypts these, an unreadable value means "not set".
+const readSetting = (key: string): unknown => {
+  const raw: unknown = getApplicationVariable(key);
+
+  return typeof raw === 'string' && raw.startsWith('enc:') ? undefined : raw;
+};
+
 const readNumberSetting = (key: string, fallback: number) => {
-  const parsed = Number(getApplicationVariable(key));
+  const parsed = Number(readSetting(key));
 
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
 
 const readBooleanSetting = (key: string, fallback: boolean) => {
-  const raw: unknown = getApplicationVariable(key);
+  const raw = readSetting(key);
 
   if (raw === undefined || raw === null || raw === '') {
     return fallback;
@@ -56,8 +65,7 @@ const LINK_PAGE_SIZE = Math.min(PAGE_SIZE * 4, 200);
 const BULK_THRESHOLD = 5;
 const BULK_WINDOW_MS = 5 * 60 * 1000;
 
-const DEFAULT_SCOPE =
-  getApplicationVariable('DEFAULT_SCOPE') === 'all' ? 'all' : 'mine';
+const DEFAULT_SCOPE = readSetting('DEFAULT_SCOPE') === 'all' ? 'all' : 'mine';
 
 // The read-state object is written by this very panel, so its own events would
 // otherwise show up in the feed as noise about the feed.
@@ -315,109 +323,21 @@ const toAttachmentEvent = (attachment: TimelineRecord): TimelineRecord => ({
   properties: null,
 });
 
-// Which label goes on the sheet. Extensions that mean the same document type
-// share one — nobody needs `.jpeg` and `.jpg` to look different. Anything not
-// listed keeps the plain quoted line: a wrong icon is worse than none.
-const FILE_LABELS: Record<string, string> = {
-  pdf: 'PDF',
-  doc: 'DOC',
-  docx: 'DOC',
-  rtf: 'DOC',
-  odt: 'DOC',
-  pages: 'DOC',
-  txt: 'TXT',
-  md: 'TXT',
-  xls: 'XLS',
-  xlsx: 'XLS',
-  numbers: 'XLS',
-  csv: 'CSV',
-  ppt: 'PPT',
-  pptx: 'PPT',
-  key: 'PPT',
-  jpg: 'JPG',
-  jpeg: 'JPG',
-  png: 'PNG',
-  gif: 'GIF',
-  webp: 'WEBP',
-  heic: 'HEIC',
-  svg: 'SVG',
-  zip: 'ZIP',
-  rar: 'RAR',
-  '7z': '7Z',
-  gz: 'GZ',
-  dwg: 'DWG',
-  dxf: 'DXF',
-};
-
 const GOOGLE_DRIVE_HOSTS = ['drive.google.com', 'docs.google.com'];
 
-// A sheet with a folded corner and the format stamped across it — the shape
-// Twenty uses for file types, drawn here because `twenty-ui/icon` exports only
-// the generic `IconFile`. The band is filled with the current colour and the
-// letters are knocked out of it, so one glyph works on any background.
-const FileGlyph = ({
-  label,
-  size,
-  background,
-}: {
-  label: string;
-  size: number;
-  background: string;
-}) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    style={{ flexShrink: 0, display: 'block' }}
-  >
-    <path
-      d="M13.2 3H7.4A2.4 2.4 0 0 0 5 5.4V12h14V8.8L13.2 3Z"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinejoin="round"
-    />
-    <path
-      d="M13.2 3v5.8H19"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinejoin="round"
-    />
-    <rect x="2" y="13" width="20" height="8" rx="2" fill="currentColor" />
-    <text
-      x="12"
-      y="19.2"
-      textAnchor="middle"
-      fontSize={label.length > 3 ? 6 : 7.4}
-      fontWeight="700"
-      fontFamily="inherit"
-      fill={background}
-    >
-      {label}
-    </text>
-  </svg>
-);
-
-type FileMark =
-  | { kind: 'icon'; Icon: typeof IconLink }
-  | { kind: 'label'; label: string }
-  | null;
-
-// A link pasted as an attachment has no extension — the host is what says what
-// it is, and Drive is the one worth recognising.
-const getFileMark = (fileName: string): FileMark => {
+// One glyph for every format. Per-extension icons turned the strip into a
+// sticker sheet, and Twenty's own pack has no per-format family anyway — a
+// link is the only thing worth telling apart, because it is not a file.
+const getFileIcon = (fileName: string) => {
   const name = fileName.toLowerCase();
 
-  if (name.startsWith('http')) {
-    return GOOGLE_DRIVE_HOSTS.some((host) => name.includes(host))
-      ? { kind: 'icon', Icon: IconBrandGoogle }
-      : { kind: 'icon', Icon: IconLink };
+  if (!name.startsWith('http')) {
+    return IconFile;
   }
 
-  const label = FILE_LABELS[name.split('.').pop() ?? ''];
-
-  return label === undefined ? null : { kind: 'label', label };
+  return GOOGLE_DRIVE_HOSTS.some((host) => name.includes(host))
+    ? IconBrandGoogle
+    : IconLink;
 };
 
 const readMarkdown = (body: unknown) => {
@@ -1552,6 +1472,32 @@ const ActivityFeed = () => {
     [visibleItems],
   );
 
+  // A document belongs to a record, so the record is the row and its files sit
+  // under it — one deal with four files is one island, not four loose lines.
+  const documentGroups = useMemo(() => {
+    const index = new Map<
+      string,
+      { key: string; target: ResolvedTarget | null; items: TimelineRecord[] }
+    >();
+
+    for (const item of documents) {
+      const target = resolveTarget(item);
+      const key =
+        target !== null
+          ? `${target.objectNameSingular}:${target.recordId}`
+          : `document:${String(item.id)}`;
+      const existing = index.get(key);
+
+      if (existing === undefined) {
+        index.set(key, { key, target, items: [item] });
+      } else {
+        existing.items.push(item);
+      }
+    }
+
+    return [...index.values()];
+  }, [documents]);
+
   // How many files the personal filter is holding back. Without this the strip
   // just vanishes and looks broken — the honest answer is that they belong to
   // records that are not yours.
@@ -1722,24 +1668,10 @@ const ActivityFeed = () => {
     );
   };
 
-  // The glyph sits on the panel's own surface, and the letters are cut out of
-  // it — so the surface colour has to travel with it.
-  const surface = colorScheme === 'dark' ? '#1B1B1B' : '#FFFFFF';
-
   const renderFileMark = (fileName: string) => {
-    const mark = getFileMark(fileName);
+    const Icon = getFileIcon(fileName);
 
-    if (mark === null) {
-      return null;
-    }
-
-    return mark.kind === 'icon' ? (
-      <mark.Icon size={16} stroke={1.8} color={palette.textLight} />
-    ) : (
-      <span style={{ color: palette.textLight, display: 'inline-flex' }}>
-        <FileGlyph label={mark.label} size={16} background={surface} />
-      </span>
-    );
+    return <Icon size={16} stroke={1.7} color={palette.textLight} />;
   };
 
   const renderPayload = (
@@ -1754,9 +1686,6 @@ const ActivityFeed = () => {
             marginTop: '5px',
             paddingLeft: '8px',
             borderLeft: `2px solid ${accentColor}`,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '5px',
             fontSize: '0.92rem',
             fontWeight: 400,
             color: palette.textMid,
@@ -1764,8 +1693,6 @@ const ActivityFeed = () => {
             overflowWrap: 'anywhere',
           }}
         >
-          {described.linkedKind === 'attachment' &&
-            renderFileMark(described.linkedName)}
           {described.linkedName}
         </div>
       )}
@@ -2836,12 +2763,6 @@ const ActivityFeed = () => {
             {isExpanded &&
               entry.items.slice(0, 20).map((item) => {
                 const target = resolveTarget(item);
-                const fileName =
-                  typeof item.linkedRecordCachedName === 'string'
-                    ? item.linkedRecordCachedName
-                    : '';
-                const isFile =
-                  described.linkedKind === 'attachment' && fileName !== '';
 
                 return (
                   <div
@@ -2863,11 +2784,10 @@ const ActivityFeed = () => {
                       whiteSpace: 'nowrap',
                     }}
                   >
-                    {isFile && renderFileMark(fileName)}
                     {typeof item.linkedRecordCachedName === 'string' &&
                     item.linkedRecordCachedName !== ''
-                      ? // A file row names the file; the click still opens the
-                        // record it hangs on, which is where the file lives.
+                      ? // A linked note or task names itself; the click opens
+                        // the record it hangs on.
                         `${item.linkedRecordCachedName}${
                           target !== null && target.label !== ''
                             ? ` · ${target.label}`
@@ -2887,75 +2807,104 @@ const ActivityFeed = () => {
 
   // Files first, in a strip of their own: a document is a thing you go back to,
   // not a change you read once — burying it among status edits made it
-  // effectively invisible.
-  const DOCUMENTS_SHOWN = 5;
+  // effectively invisible. Grouped by the record they hang on, because that is
+  // what a document belongs to: a deal, a contact, a custom object.
+  const DOCUMENT_GROUPS_SHOWN = 4;
 
-  const renderDocument = (item: TimelineRecord) => {
-    const target = resolveTarget(item);
-    const fileName =
-      typeof item.linkedRecordCachedName === 'string'
-        ? item.linkedRecordCachedName
-        : t('Document');
-    const rowKey = `document-${String(item.id)}`;
-    const isHovered = hoveredId === rowKey;
+  const renderDocumentGroup = (group: {
+    key: string;
+    target: ResolvedTarget | null;
+    items: TimelineRecord[];
+  }) => {
+    const { target } = group;
+    const classColor = getObjectColor(target?.objectNameSingular ?? '');
+    const label = target !== null && target.label !== '' ? target.label : t('Record');
+    const isHovered = hoveredCard === group.key;
 
     return (
       <div
-        key={rowKey}
-        onMouseEnter={() => setHoveredId(rowKey)}
-        onMouseLeave={() => setHoveredId(null)}
-        onClick={target === null ? undefined : () => openRecord(target)}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          padding: '6px 16px',
-          cursor: target === null ? 'default' : 'pointer',
-          background: isHovered ? palette.hover : 'transparent',
-        }}
+        key={group.key}
+        onMouseEnter={() => setHoveredCard(group.key)}
+        onMouseLeave={() => setHoveredCard(null)}
+        style={{ padding: '7px 16px 9px' }}
       >
-        {renderFileMark(fileName)}
-
-        <span
+        <div
+          onClick={target === null ? undefined : () => openRecord(target)}
           style={{
-            fontSize: '0.92rem',
-            fontWeight: 400,
-            color: palette.text,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            flexShrink: 1,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            minWidth: 0,
+            cursor: target === null ? 'default' : 'pointer',
           }}
         >
-          {fileName}
-        </span>
-
-        {target !== null && target.label !== '' && (
+          <InlineAvatar
+            size={15}
+            label={label}
+            color={`${classColor}22`}
+            textColor={classColor}
+            avatarUrl={target?.avatarUrl}
+          />
+          <span
+            style={{
+              fontSize: '0.92rem',
+              fontWeight: 500,
+              color: isHovered ? classColor : palette.text,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {label}
+          </span>
+          <span style={{ flex: 1 }} />
           <span
             style={{
               fontSize: '0.92rem',
               color: palette.textLight,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
-              minWidth: 0,
             }}
           >
-            · {target.label}
+            {formatAgo(String(group.items[0].happensAt))}
           </span>
-        )}
+        </div>
 
-        <span style={{ flex: 1 }} />
+        {group.items.map((item) => {
+          const fileName =
+            typeof item.linkedRecordCachedName === 'string'
+              ? item.linkedRecordCachedName
+              : t('Document');
 
-        <span
-          style={{
-            fontSize: '0.92rem',
-            color: palette.textLight,
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {formatAgo(String(item.happensAt))}
-        </span>
+          return (
+            <div
+              key={String(item.id)}
+              onClick={target === null ? undefined : () => openRecord(target)}
+              style={{
+                marginTop: '4px',
+                marginLeft: '21px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                minWidth: 0,
+                cursor: target === null ? 'default' : 'pointer',
+              }}
+            >
+              {renderFileMark(fileName)}
+              <span
+                style={{
+                  fontSize: '0.92rem',
+                  fontWeight: 400,
+                  color: palette.textMid,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {fileName}
+              </span>
+            </div>
+          );
+        })}
       </div>
     );
   };
@@ -3235,11 +3184,11 @@ const ActivityFeed = () => {
               <>
                 {renderSectionHeader(t('Documents'), documents.length)}
                 {(expandedKeys.includes('documents')
-                  ? documents
-                  : documents.slice(0, DOCUMENTS_SHOWN)
-                ).map(renderDocument)}
+                  ? documentGroups
+                  : documentGroups.slice(0, DOCUMENT_GROUPS_SHOWN)
+                ).map(renderDocumentGroup)}
 
-                {documents.length > DOCUMENTS_SHOWN && (
+                {documentGroups.length > DOCUMENT_GROUPS_SHOWN && (
                   <div style={{ padding: '4px 16px 0' }}>
                     <button
                       type="button"
@@ -3264,8 +3213,8 @@ const ActivityFeed = () => {
                     >
                       {expandedKeys.includes('documents')
                         ? t('Collapse')
-                        : t('{count} more documents', {
-                            count: documents.length - DOCUMENTS_SHOWN,
+                        : t('{count} more records with documents', {
+                            count: documentGroups.length - DOCUMENT_GROUPS_SHOWN,
                           })}
                     </button>
                   </div>
