@@ -8,8 +8,13 @@ import {
   useColorScheme,
   useUserId,
 } from 'twenty-sdk/front-component';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { RestApiClient } from 'twenty-client-sdk/rest';
+// Named imports only: `useIcons` and `IconsProvider` drag in the whole Tabler
+// set, several megabytes of it. twenty-ui re-exports a curated subset, and the
+// per-format `IconFileTypePdf` family is not part of it — those are drawn
+// below. These two are, and a link is exactly what they mean.
+import { IconBrandGoogle, IconLink } from 'twenty-ui/icon';
 
 import { ACTIVITY_FEED_FRONT_COMPONENT_UNIVERSAL_IDENTIFIER } from 'src/constants/universal-identifiers';
 
@@ -300,6 +305,111 @@ const toAttachmentEvent = (attachment: TimelineRecord): TimelineRecord => ({
   linkedRecordCachedName: attachment.name,
   properties: null,
 });
+
+// Which label goes on the sheet. Extensions that mean the same document type
+// share one — nobody needs `.jpeg` and `.jpg` to look different. Anything not
+// listed keeps the plain quoted line: a wrong icon is worse than none.
+const FILE_LABELS: Record<string, string> = {
+  pdf: 'PDF',
+  doc: 'DOC',
+  docx: 'DOC',
+  rtf: 'DOC',
+  odt: 'DOC',
+  pages: 'DOC',
+  txt: 'TXT',
+  md: 'TXT',
+  xls: 'XLS',
+  xlsx: 'XLS',
+  numbers: 'XLS',
+  csv: 'CSV',
+  ppt: 'PPT',
+  pptx: 'PPT',
+  key: 'PPT',
+  jpg: 'JPG',
+  jpeg: 'JPG',
+  png: 'PNG',
+  gif: 'GIF',
+  webp: 'WEBP',
+  heic: 'HEIC',
+  svg: 'SVG',
+  zip: 'ZIP',
+  rar: 'RAR',
+  '7z': '7Z',
+  gz: 'GZ',
+  dwg: 'DWG',
+  dxf: 'DXF',
+};
+
+const GOOGLE_DRIVE_HOSTS = ['drive.google.com', 'docs.google.com'];
+
+// A sheet with a folded corner and the format stamped across it — the shape
+// Twenty uses for file types, drawn here because `twenty-ui/icon` exports only
+// the generic `IconFile`. The band is filled with the current colour and the
+// letters are knocked out of it, so one glyph works on any background.
+const FileGlyph = ({
+  label,
+  size,
+  background,
+}: {
+  label: string;
+  size: number;
+  background: string;
+}) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    style={{ flexShrink: 0, display: 'block' }}
+  >
+    <path
+      d="M13.2 3H7.4A2.4 2.4 0 0 0 5 5.4V12h14V8.8L13.2 3Z"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinejoin="round"
+    />
+    <path
+      d="M13.2 3v5.8H19"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinejoin="round"
+    />
+    <rect x="2" y="13" width="20" height="8" rx="2" fill="currentColor" />
+    <text
+      x="12"
+      y="19.2"
+      textAnchor="middle"
+      fontSize={label.length > 3 ? 6 : 7.4}
+      fontWeight="700"
+      fontFamily="inherit"
+      fill={background}
+    >
+      {label}
+    </text>
+  </svg>
+);
+
+type FileMark =
+  | { kind: 'icon'; Icon: typeof IconLink }
+  | { kind: 'label'; label: string }
+  | null;
+
+// A link pasted as an attachment has no extension — the host is what says what
+// it is, and Drive is the one worth recognising.
+const getFileMark = (fileName: string): FileMark => {
+  const name = fileName.toLowerCase();
+
+  if (name.startsWith('http')) {
+    return GOOGLE_DRIVE_HOSTS.some((host) => name.includes(host))
+      ? { kind: 'icon', Icon: IconBrandGoogle }
+      : { kind: 'icon', Icon: IconLink };
+  }
+
+  const label = FILE_LABELS[name.split('.').pop() ?? ''];
+
+  return label === undefined ? null : { kind: 'label', label };
+};
 
 const readMarkdown = (body: unknown) => {
   if (body === null || typeof body !== 'object') {
@@ -979,11 +1089,51 @@ const ActivityFeed = () => {
     }
   }, [userId]);
 
+  // What a task or a note hangs on — a deal, a company, a contact. The to-many
+  // link is not expanded on the record itself, so it is read separately.
+  // This is structural data: it changes when somebody re-files a record, not
+  // when they edit one, so it is refreshed on tab switches rather than on every
+  // poll — at depth 1 these two requests alone were 700 KB every 15 seconds.
+  const loadLinks = useCallback(async () => {
+    try {
+      const client = new RestApiClient();
+
+      const [taskResponse, noteResponse] = await Promise.all([
+        client.get<{ data?: { taskTargets?: TimelineRecord[] } }>(
+          '/rest/taskTargets',
+          {
+            // The page caps at 200, so newest links first — an old link that
+            // falls outside the window simply is not shown.
+            query: {
+              limit: LINK_PAGE_SIZE,
+              depth: 1,
+              order_by: 'createdAt[DescNullsLast]',
+            },
+          },
+        ),
+        client.get<{ data?: { noteTargets?: TimelineRecord[] } }>(
+          '/rest/noteTargets',
+          {
+            query: {
+              limit: LINK_PAGE_SIZE,
+              order_by: 'createdAt[DescNullsLast]',
+            },
+          },
+        ),
+      ]);
+
+      setTaskTargets(taskResponse.data?.taskTargets ?? []);
+      setNoteTargets(noteResponse.data?.noteTargets ?? []);
+    } catch {
+      // Missing links only cost the chips, so a failure here stays silent.
+    }
+  }, []);
+
   const loadTasks = useCallback(async () => {
     try {
       const client = new RestApiClient();
 
-      const [response, editsResponse, targetsResponse] = await Promise.all([
+      const [response, editsResponse] = await Promise.all([
         client.get<{ data?: { tasks?: TimelineRecord[] } }>('/rest/tasks', {
           query: {
             limit: PAGE_SIZE,
@@ -1004,25 +1154,10 @@ const ActivityFeed = () => {
             },
           },
         ),
-        // What the task hangs on — a deal, a company, a contact. Like notes,
-        // the to-many link is not expanded on the record itself.
-        client.get<{ data?: { taskTargets?: TimelineRecord[] } }>(
-          '/rest/taskTargets',
-          {
-            // The page caps at 200, so newest links first — an old link that
-            // falls outside the window simply is not shown.
-            query: {
-              limit: LINK_PAGE_SIZE,
-              depth: 1,
-              order_by: 'createdAt[DescNullsLast]',
-            },
-          },
-        ),
       ]);
 
       setTasks(response.data?.tasks ?? []);
       setTaskEdits(editsResponse.data?.timelineActivities ?? []);
-      setTaskTargets(targetsResponse.data?.taskTargets ?? []);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
@@ -1035,7 +1170,7 @@ const ActivityFeed = () => {
     try {
       const client = new RestApiClient();
 
-      const [notesResponse, editsResponse, targetsResponse] = await Promise.all([
+      const [notesResponse, editsResponse] = await Promise.all([
         client.get<{ data?: { notes?: TimelineRecord[] } }>('/rest/notes', {
           query: {
             limit: PAGE_SIZE,
@@ -1054,22 +1189,10 @@ const ActivityFeed = () => {
             },
           },
         ),
-        // `note.noteTargets` comes back empty at depth 1 — to-many relations
-        // are not expanded — so the links are read separately.
-        client.get<{ data?: { noteTargets?: TimelineRecord[] } }>(
-          '/rest/noteTargets',
-          {
-            query: {
-              limit: LINK_PAGE_SIZE,
-              order_by: 'createdAt[DescNullsLast]',
-            },
-          },
-        ),
       ]);
 
       setNotes(notesResponse.data?.notes ?? []);
       setNoteEdits(editsResponse.data?.timelineActivities ?? []);
-      setNoteTargets(targetsResponse.data?.noteTargets ?? []);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
@@ -1104,19 +1227,32 @@ const ActivityFeed = () => {
     void loadViewer();
   }, [loadReadState, loadObjectLabels, loadViewer]);
 
+  // Links are shared by all three tabs but change only when a record is
+  // re-filed, so a tab switch is a frequent enough moment to refresh them.
   useEffect(() => {
-    void loadFeed();
-    void loadTasks();
-    void loadBuzz();
+    void loadLinks();
+  }, [loadLinks, view]);
 
-    const intervalId = setInterval(() => {
-      void loadFeed();
-      void loadTasks();
-      void loadBuzz();
-    }, POLL_INTERVAL_MS);
+  // Only the tab in front of the user is polled. Refreshing all three every
+  // 15 seconds meant 1.7 MB of JSON per cycle — most of it for screens nobody
+  // was looking at, all of it parsed into objects the sandbox then collected.
+  useEffect(() => {
+    const refresh = () => {
+      if (view === 'tasks') {
+        void loadTasks();
+      } else if (view === 'buzz') {
+        void loadBuzz();
+      } else {
+        void loadFeed();
+      }
+    };
+
+    refresh();
+
+    const intervalId = setInterval(refresh, POLL_INTERVAL_MS);
 
     return () => clearInterval(intervalId);
-  }, [loadFeed, loadTasks, loadBuzz]);
+  }, [view, loadFeed, loadTasks, loadBuzz]);
 
   const markAllAsRead = async () => {
     if (userId === null) {
@@ -1289,19 +1425,30 @@ const ActivityFeed = () => {
   };
 
   // The newest page and everything paged in behind it. Keyed by id: a poll can
-  // land between the two and serve the same event twice.
-  const allItems = [
-    ...new Map(
-      [...items, ...olderItems].map((item) => [String(item.id), item]),
-    ).values(),
-  ].sort(byHappensAtDesc);
+  // land between the two and serve the same event twice. Memoised because
+  // hovering a card is a state change, and re-sorting a few hundred events on
+  // every mouse move is work nobody asked for.
+  const allItems = useMemo(
+    () =>
+      [
+        ...new Map(
+          [...items, ...olderItems].map((item) => [String(item.id), item]),
+        ).values(),
+      ].sort(byHappensAtDesc),
+    [items, olderItems],
+  );
 
   // On an enforcing instance the server already scoped the response, so
   // filtering again would only hide records the viewer is entitled to.
-  const visibleItems =
-    enforcement !== 'server' && scope === 'mine'
-      ? allItems.filter(isMine)
-      : allItems;
+  const visibleItems = useMemo(
+    () =>
+      enforcement !== 'server' && scope === 'mine'
+        ? allItems.filter(isMine)
+        : allItems,
+    // `isMine` is rebuilt every render; what it actually reads is listed here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [allItems, enforcement, scope, memberId, myCompanyIds],
+  );
 
   // Tasks view: what is hanging, not what changed. Done tasks are dropped —
   // a finished task is never something the user still owes.
@@ -1381,6 +1528,14 @@ const ActivityFeed = () => {
     };
   };
 
+  type FeedEntry =
+    | { kind: 'group'; key: string; items: TimelineRecord[] }
+    | { kind: 'bulk'; key: string; items: TimelineRecord[] };
+
+  // Grouping walks the whole feed twice and sorts the result. It depends on
+  // the events alone, so it is rebuilt when they change — not when a card
+  // lights up under the cursor.
+  const entries = useMemo<FeedEntry[]>(() => {
   const bulkCounts = new Map<string, number>();
 
   for (const item of visibleItems) {
@@ -1439,19 +1594,17 @@ const ActivityFeed = () => {
     }
   }
 
-  const unreadCount = visibleItems.filter(isUnread).length;
-
-  type FeedEntry =
-    | { kind: 'group'; key: string; items: TimelineRecord[] }
-    | { kind: 'bulk'; key: string; items: TimelineRecord[] };
-
   const newestOf = (items: TimelineRecord[]) =>
     Math.max(...items.map((i) => new Date(String(i.happensAt)).getTime()));
 
-  const entries: FeedEntry[] = [
+  return [
     ...groups.map((g) => ({ kind: 'group' as const, ...g })),
     ...bulkEntries.map((b) => ({ kind: 'bulk' as const, ...b })),
   ].sort((a, b) => newestOf(b.items) - newestOf(a.items));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleItems]);
+
+  const unreadCount = visibleItems.filter(isUnread).length;
 
   const unreadEntries = entries.filter((e) => e.items.some(isUnread));
   const readEntries = entries.filter((e) => !e.items.some(isUnread));
@@ -1543,6 +1696,26 @@ const ActivityFeed = () => {
     );
   };
 
+  // The glyph sits on the panel's own surface, and the letters are cut out of
+  // it — so the surface colour has to travel with it.
+  const surface = colorScheme === 'dark' ? '#1B1B1B' : '#FFFFFF';
+
+  const renderFileMark = (fileName: string) => {
+    const mark = getFileMark(fileName);
+
+    if (mark === null) {
+      return null;
+    }
+
+    return mark.kind === 'icon' ? (
+      <mark.Icon size={16} stroke={1.8} color={palette.textLight} />
+    ) : (
+      <span style={{ color: palette.textLight, display: 'inline-flex' }}>
+        <FileGlyph label={mark.label} size={16} background={surface} />
+      </span>
+    );
+  };
+
   const renderPayload = (
     item: TimelineRecord,
     described: ReturnType<typeof describe>,
@@ -1555,6 +1728,9 @@ const ActivityFeed = () => {
             marginTop: '5px',
             paddingLeft: '8px',
             borderLeft: `2px solid ${accentColor}`,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '5px',
             fontSize: '0.92rem',
             fontWeight: 400,
             color: palette.textMid,
@@ -1562,6 +1738,8 @@ const ActivityFeed = () => {
             overflowWrap: 'anywhere',
           }}
         >
+          {described.linkedKind === 'attachment' &&
+            renderFileMark(described.linkedName)}
           {described.linkedName}
         </div>
       )}
@@ -2632,6 +2810,12 @@ const ActivityFeed = () => {
             {isExpanded &&
               entry.items.slice(0, 20).map((item) => {
                 const target = resolveTarget(item);
+                const fileName =
+                  typeof item.linkedRecordCachedName === 'string'
+                    ? item.linkedRecordCachedName
+                    : '';
+                const isFile =
+                  described.linkedKind === 'attachment' && fileName !== '';
 
                 return (
                   <div
@@ -2641,6 +2825,9 @@ const ActivityFeed = () => {
                     }
                     style={{
                       marginTop: '4px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '5px',
                       fontSize: '0.92rem',
                       fontWeight: 400,
                       color: target === null ? palette.textLight : palette.text,
@@ -2650,6 +2837,7 @@ const ActivityFeed = () => {
                       whiteSpace: 'nowrap',
                     }}
                   >
+                    {isFile && renderFileMark(fileName)}
                     {typeof item.linkedRecordCachedName === 'string' &&
                     item.linkedRecordCachedName !== ''
                       ? // A file row names the file; the click still opens the
