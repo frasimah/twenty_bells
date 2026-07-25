@@ -18,10 +18,13 @@ import { IconBrandGoogle, IconLink } from 'twenty-ui/icon';
 
 import { ACTIVITY_FEED_FRONT_COMPONENT_UNIVERSAL_IDENTIFIER } from 'src/constants/universal-identifiers';
 
-// Everything below comes from the app's Settings tab. Application variables
-// always arrive as strings — `process.env` semantics — so each one is parsed
-// back into the type it was declared with, with the manifest default as the
-// fallback for a workspace that never touched the setting.
+// Everything below comes from the app's Settings tab, with the manifest
+// default as the fallback for a workspace that never touched the setting.
+//
+// The SDK's getter is typed `string | undefined`, but it does
+// `JSON.parse(process.env.applicationVariables)[key]` — a BOOLEAN variable
+// comes back as a real `true`, not as `'true'`. Comparing it to the string
+// silently turned SHOW_ATTACHMENTS off and kept every file out of the feed.
 const readNumberSetting = (key: string, fallback: number) => {
   const parsed = Number(getApplicationVariable(key));
 
@@ -29,9 +32,13 @@ const readNumberSetting = (key: string, fallback: number) => {
 };
 
 const readBooleanSetting = (key: string, fallback: boolean) => {
-  const raw = getApplicationVariable(key);
+  const raw: unknown = getApplicationVariable(key);
 
-  return raw === undefined ? fallback : raw === 'true';
+  if (raw === undefined || raw === null || raw === '') {
+    return fallback;
+  }
+
+  return typeof raw === 'boolean' ? raw : String(raw).toLowerCase() === 'true';
 };
 
 const POLL_INTERVAL_MS = readNumberSetting('POLL_INTERVAL_SECONDS', 15) * 1000;
@@ -1543,6 +1550,16 @@ const ActivityFeed = () => {
   const documents = useMemo(
     () => visibleItems.filter((item) => item.name === ATTACHMENT_EVENT),
     [visibleItems],
+  );
+
+  // How many files the personal filter is holding back. Without this the strip
+  // just vanishes and looks broken — the honest answer is that they belong to
+  // records that are not yours.
+  const hiddenDocuments = useMemo(
+    () =>
+      allItems.filter((item) => item.name === ATTACHMENT_EVENT).length -
+      documents.length,
+    [allItems, documents],
   );
 
   const changes = useMemo(
@@ -3169,6 +3186,34 @@ const ActivityFeed = () => {
 
         {view === 'feed' && (
           <>
+            {documents.length === 0 && hiddenDocuments > 0 && (
+              <>
+                {renderSectionHeader(t('Documents'), 0)}
+                <div style={{ padding: '2px 16px 6px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setScope('all')}
+                    style={{
+                      border: 'none',
+                      background: 'transparent',
+                      padding: 0,
+                      fontFamily: 'inherit',
+                      fontSize: '0.92rem',
+                      fontWeight: 400,
+                      color: palette.textMid,
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      textDecoration: 'underline',
+                    }}
+                  >
+                    {t('{count} documents hidden by "Only mine" — show all', {
+                      count: hiddenDocuments,
+                    })}
+                  </button>
+                </div>
+              </>
+            )}
+
             {documents.length > 0 && (
               <>
                 {renderSectionHeader(t('Documents'), documents.length)}

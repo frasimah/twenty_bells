@@ -73,6 +73,7 @@
   "text shortened": "текст сокращён",
   "today": "сегодня",
   "updated": "изменена",
+  "{count} documents hidden by \"Only mine\" — show all": "{count} документов скрыто фильтром «Только мои» — показать все",
   "{count} more documents": "ещё {count} документов",
   "{count} more events on this record": "ещё {count} событий по этой записи",
   "{count} × {object}": "{count} × {object}",
