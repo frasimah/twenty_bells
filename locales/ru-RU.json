@@ -17,7 +17,7 @@
   "Feed Read States": "Отметки прочтения",
   "Filter off: everything the server returned. Click to keep only yours.": "Фильтр выключен: показано всё, что вернул сервер. Нажмите, чтобы оставить только своё.",
   "Filter on: only what relates to you. Click to see everything.": "Фильтр включён: показано только связанное с вами. Нажмите, чтобы увидеть всё.",
-  "Load the previous page of events": "Загрузить предыдущую страницу событий",
+  "Latest {loaded} of {total} events": "Последние {loaded} событий из {total}",
   "Loading…": "Загружаю…",
   "Mark all read": "Прочитано",
   "Mark every event as read": "Отметить все события прочитанными",
@@ -40,7 +40,6 @@
   "Person": "Контакт",
   "Record": "Запись",
   "Row-level permissions are on: Twenty scopes the data itself and the panel adds no filtering.": "Row-level permissions включены: доступ ограничивает сам Twenty, панель ничего не доотфильтровывает.",
-  "Show more": "Показать ещё",
   "Show records": "Показать записи",
   "Show what this was written against": "Показать, к какому месту это написано",
   "Someone": "Кто-то",
@@ -83,6 +82,5 @@
   "{days}d overdue": "просрочено на {days} дн",
   "{hidden} more comments": "ещё {hidden} комментариев",
   "{hours}h": "{hours} ч",
-  "{loaded} of {total}": "{loaded} из {total}",
   "{minutes}m": "{minutes} мин"
 }

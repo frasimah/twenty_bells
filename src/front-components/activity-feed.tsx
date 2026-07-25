@@ -52,6 +52,11 @@ const readBooleanSetting = (key: string, fallback: boolean) => {
 
 const POLL_INTERVAL_MS = readNumberSetting('POLL_INTERVAL_SECONDS', 15) * 1000;
 const PAGE_SIZE = readNumberSetting('PAGE_SIZE', 50);
+// What the feed holds, deliberately fixed. Paging further back turned the
+// panel into an archive nobody scrolled: a hundred latest events is what a
+// person actually catches up on, and one request keeps them exact — no gaps
+// between pages, no duplicates when a new event arrives mid-scroll.
+const FEED_LIMIT = 100;
 const SHOW_TIMELINE_RAIL = readBooleanSetting('SHOW_TIMELINE_RAIL', false);
 const SHOW_SEED_BUTTON = readBooleanSetting('SHOW_SEED_BUTTON', false);
 const SHOW_ATTACHMENTS = readBooleanSetting('SHOW_ATTACHMENTS', true);
@@ -196,14 +201,6 @@ type TimelineRecord = Record<string, unknown>;
 
 type FeedGroup = { key: string; items: TimelineRecord[] };
 
-// Where each stream stopped. `extended` marks that the user has paged past the
-// first screen, which is what stops the poll from rewinding these.
-type FeedCursors = {
-  timeline: string | null;
-  attachments: string | null;
-  extended: boolean;
-};
-
 // REST answers with the rows plus how many there are in total and where the
 // page ended — that is what makes "loaded 96 of 199" and paging possible.
 type Page<K extends string> = {
@@ -211,9 +208,6 @@ type Page<K extends string> = {
   totalCount?: number;
   pageInfo?: { endCursor?: string; hasNextPage?: boolean };
 };
-
-const nextCursor = (page: Page<string>) =>
-  page.pageInfo?.hasNextPage === true ? (page.pageInfo.endCursor ?? null) : null;
 
 const isVisibleEvent = (item: TimelineRecord) =>
   typeof item.name !== 'string' || !item.name.startsWith(HIDDEN_EVENT_PREFIX);
@@ -761,16 +755,7 @@ const ActivityFeed = () => {
   const [isSeeding, setIsSeeding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
-  // Pages fetched past the first one. They are kept apart from `items` so the
-  // poll can refresh the newest page without throwing away what was loaded.
-  const [olderItems, setOlderItems] = useState<TimelineRecord[]>([]);
-  const [cursors, setCursors] = useState<FeedCursors>({
-    timeline: null,
-    attachments: null,
-    extended: false,
-  });
   const [feedTotal, setFeedTotal] = useState(0);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   const loadFeed = useCallback(async () => {
     try {
@@ -779,7 +764,7 @@ const ActivityFeed = () => {
       const [timeline, attachments] = await Promise.all([
         client.get<Page<'timelineActivities'>>('/rest/timelineActivities', {
           query: {
-            limit: PAGE_SIZE,
+            limit: FEED_LIMIT,
             depth: 1,
             order_by: 'happensAt[DescNullsLast]',
           },
@@ -787,7 +772,10 @@ const ActivityFeed = () => {
         SHOW_ATTACHMENTS
           ? client.get<Page<'attachments'>>('/rest/attachments', {
               query: {
-                limit: PAGE_SIZE,
+                // Same window as the events. At fifty the newest files were all
+                // on contacts and companies, and documents filed under tasks or
+                // notes never made it into the strip at all.
+                limit: FEED_LIMIT,
                 depth: 1,
                 order_by: 'createdAt[DescNullsLast]',
               },
@@ -799,28 +787,16 @@ const ActivityFeed = () => {
         isVisibleEvent,
       );
 
-      // Deliberately not sliced back to PAGE_SIZE: each stream is already
-      // capped, and cutting the merged list by time dropped every attachment
-      // whenever a burst of newer events filled the window.
+      // The two streams are kept whole rather than merged and cut: files are
+      // older than the latest edits, so slicing the merged list by time is what
+      // used to throw every document away.
       setItems(
         [
           ...events,
           ...(attachments.data?.attachments ?? []).map(toAttachmentEvent),
         ].sort(byHappensAtDesc),
       );
-      setFeedTotal((timeline.totalCount ?? 0) + (attachments.totalCount ?? 0));
-      // Once the user has paged further back, the poll refreshes the newest
-      // page only — rewinding the cursors here would re-serve pages they
-      // already have.
-      setCursors((prev) =>
-        prev.extended
-          ? prev
-          : {
-              timeline: nextCursor(timeline),
-              attachments: nextCursor(attachments),
-              extended: false,
-            },
-      );
+      setFeedTotal(timeline.totalCount ?? 0);
       setError(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
@@ -828,57 +804,6 @@ const ActivityFeed = () => {
       setIsLoading(false);
     }
   }, []);
-
-  // One screen back. Both streams page independently — a workspace can have
-  // hundreds of files and few events, or the other way round.
-  const loadMore = async () => {
-    setIsLoadingMore(true);
-
-    try {
-      const client = new RestApiClient();
-
-      const [timeline, attachments] = await Promise.all([
-        cursors.timeline === null
-          ? Promise.resolve({} as Page<'timelineActivities'>)
-          : client.get<Page<'timelineActivities'>>('/rest/timelineActivities', {
-              query: {
-                limit: PAGE_SIZE,
-                depth: 1,
-                order_by: 'happensAt[DescNullsLast]',
-                starting_after: cursors.timeline,
-              },
-            }),
-        cursors.attachments === null
-          ? Promise.resolve({} as Page<'attachments'>)
-          : client.get<Page<'attachments'>>('/rest/attachments', {
-              query: {
-                limit: PAGE_SIZE,
-                depth: 1,
-                order_by: 'createdAt[DescNullsLast]',
-                starting_after: cursors.attachments,
-              },
-            }),
-      ]);
-
-      const fetched = [
-        ...(timeline.data?.timelineActivities ?? []).filter(isVisibleEvent),
-        ...(attachments.data?.attachments ?? []).map(toAttachmentEvent),
-      ];
-
-      setOlderItems((prev) => [...prev, ...fetched]);
-      setCursors({
-        timeline:
-          cursors.timeline === null ? null : nextCursor(timeline),
-        attachments:
-          cursors.attachments === null ? null : nextCursor(attachments),
-        extended: true,
-      });
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    } finally {
-      setIsLoadingMore(false);
-    }
-  };
 
   // Custom objects should read by their own label, not their API name —
   // own metadata is the only place those labels exist.
@@ -1353,19 +1278,9 @@ const ActivityFeed = () => {
     return typeof id === 'string' && myCompanyIds.includes(id);
   };
 
-  // The newest page and everything paged in behind it. Keyed by id: a poll can
-  // land between the two and serve the same event twice. Memoised because
-  // hovering a card is a state change, and re-sorting a few hundred events on
-  // every mouse move is work nobody asked for.
-  const allItems = useMemo(
-    () =>
-      [
-        ...new Map(
-          [...items, ...olderItems].map((item) => [String(item.id), item]),
-        ).values(),
-      ].sort(byHappensAtDesc),
-    [items, olderItems],
-  );
+  // Memoised because hovering a card is a state change, and re-sorting a few
+  // hundred events on every mouse move is work nobody asked for.
+  const allItems = useMemo(() => [...items].sort(byHappensAtDesc), [items]);
 
   // On an enforcing instance the server already scoped the response, so
   // filtering again would only hide records the viewer is entitled to.
@@ -3347,36 +3262,24 @@ const ActivityFeed = () => {
                 : renderGroup(entry, false),
             )}
 
-            {/* Without this the feed simply ended at the newest page, and every
-                record created earlier than that window was invisible with no
-                sign that anything had been cut. */}
-            {!isLoading && allItems.length > 0 && (
+            {/* The feed is deliberately capped. Saying so beats a list that
+                just stops, and the total tells you how much history exists. */}
+            {!isLoading && allItems.length > 0 && feedTotal > allItems.length && (
               <div
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '8px',
                   padding: '14px 16px 4px',
+                  textAlign: 'center',
+                  fontSize: '0.85rem',
+                  color: palette.textLight,
                 }}
               >
-                {(cursors.timeline !== null || cursors.attachments !== null) && (
-                  <ToolbarButton
-                    label={isLoadingMore ? t('Loading…') : t('Show more')}
-                    title={t('Load the previous page of events')}
-                    onClick={() => void loadMore()}
-                    background={palette.buttonBackground}
-                    color={palette.textMid}
-                  />
-                )}
-                <span style={{ fontSize: '0.85rem', color: palette.textLight }}>
-                  {t('{loaded} of {total}', {
-                    loaded: allItems.length,
-                    total: feedTotal,
-                  })}
-                </span>
+                {t('Latest {loaded} of {total} events', {
+                  loaded: allItems.length,
+                  total: feedTotal,
+                })}
               </div>
             )}
+
           </>
         )}
 
