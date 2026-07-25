@@ -50,7 +50,10 @@ const readBooleanSetting = (key: string, fallback: boolean) => {
   return typeof raw === 'boolean' ? raw : String(raw).toLowerCase() === 'true';
 };
 
-const POLL_INTERVAL_MS = readNumberSetting('POLL_INTERVAL_SECONDS', 15) * 1000;
+// Thirty seconds, not fifteen. The panel stays open all day, and each cycle
+// parses a few hundred kilobytes of JSON into objects the sandbox then has to
+// collect — that churn is what made Safari reclaim the tab.
+const POLL_INTERVAL_MS = readNumberSetting('POLL_INTERVAL_SECONDS', 30) * 1000;
 const PAGE_SIZE = readNumberSetting('PAGE_SIZE', 50);
 // What the feed holds, deliberately fixed. Paging further back turned the
 // panel into an archive nobody scrolled: a hundred latest events is what a
@@ -767,45 +770,28 @@ const ActivityFeed = () => {
     extended: false,
   });
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  // Files are refreshed with the links rather than on every poll: a hundred
+  // attachments at depth 1 is a quarter-megabyte of JSON, and a document that
+  // appears half a minute later is nobody's emergency.
+  const [documentItems, setDocumentItems] = useState<TimelineRecord[]>([]);
 
   const loadFeed = useCallback(async () => {
     try {
       const client = new RestApiClient();
 
-      const [timeline, attachments] = await Promise.all([
-        client.get<Page<'timelineActivities'>>('/rest/timelineActivities', {
+      const timeline = await client.get<Page<'timelineActivities'>>(
+        '/rest/timelineActivities',
+        {
           query: {
             limit: PAGE_SIZE,
             depth: 1,
             order_by: 'happensAt[DescNullsLast]',
           },
-        }),
-        SHOW_ATTACHMENTS
-          ? client.get<Page<'attachments'>>('/rest/attachments', {
-              query: {
-                // Same window as the events. At fifty the newest files were all
-                // on contacts and companies, and documents filed under tasks or
-                // notes never made it into the strip at all.
-                limit: FEED_LIMIT,
-                depth: 1,
-                order_by: 'createdAt[DescNullsLast]',
-              },
-            })
-          : Promise.resolve({ data: { attachments: [] } } as Page<'attachments'>),
-      ]);
-
-      const events = (timeline.data?.timelineActivities ?? []).filter(
-        isVisibleEvent,
+        },
       );
 
-      // The two streams are kept whole rather than merged and cut: files are
-      // older than the latest edits, so slicing the merged list by time is what
-      // used to throw every document away.
       setItems(
-        [
-          ...events,
-          ...(attachments.data?.attachments ?? []).map(toAttachmentEvent),
-        ].sort(byHappensAtDesc),
+        (timeline.data?.timelineActivities ?? []).filter(isVisibleEvent),
       );
       setFeedTotal(timeline.totalCount ?? 0);
       // Only the first page is refreshed by the poll, so the cursor must not
@@ -1005,7 +991,7 @@ const ActivityFeed = () => {
     try {
       const client = new RestApiClient();
 
-      const [taskResponse, noteResponse] = await Promise.all([
+      const [taskResponse, noteResponse, attachments] = await Promise.all([
         client.get<{ data?: { taskTargets?: TimelineRecord[] } }>(
           '/rest/taskTargets',
           {
@@ -1027,10 +1013,27 @@ const ActivityFeed = () => {
             },
           },
         ),
+        SHOW_ATTACHMENTS
+          ? client.get<{ data?: { attachments?: TimelineRecord[] } }>(
+              '/rest/attachments',
+              {
+                // At fifty the newest files were all on contacts and companies,
+                // and documents filed under tasks or notes never showed up.
+                query: {
+                  limit: FEED_LIMIT,
+                  depth: 1,
+                  order_by: 'createdAt[DescNullsLast]',
+                },
+              },
+            )
+          : Promise.resolve({ data: { attachments: [] } }),
       ]);
 
       setTaskTargets(taskResponse.data?.taskTargets ?? []);
       setNoteTargets(noteResponse.data?.noteTargets ?? []);
+      setDocumentItems(
+        (attachments.data?.attachments ?? []).map(toAttachmentEvent),
+      );
     } catch {
       // Missing links only cost the chips, so a failure here stays silent.
     }
@@ -1339,10 +1342,13 @@ const ActivityFeed = () => {
     () =>
       [
         ...new Map(
-          [...items, ...olderItems].map((item) => [String(item.id), item]),
+          [...items, ...olderItems, ...documentItems].map((item) => [
+            String(item.id),
+            item,
+          ]),
         ).values(),
       ].sort(byHappensAtDesc),
-    [items, olderItems],
+    [items, olderItems, documentItems],
   );
 
   // On an enforcing instance the server already scoped the response, so

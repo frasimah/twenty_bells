@@ -23,7 +23,7 @@ export default defineApplication({
       universalIdentifier: '9b1e85a3-e465-4956-bf72-f351cd761d9d',
       description: 'How often the panel refetches events, in seconds',
       type: FieldType.NUMBER,
-      value: 15,
+      value: 30,
     },
     PAGE_SIZE: {
       universalIdentifier: '9d11f000-7213-45ff-9bb2-e3c513522bfd',
