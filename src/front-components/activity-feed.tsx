@@ -1581,6 +1581,17 @@ const ActivityFeed = () => {
   const unreadEntries = entries.filter((e) => e.items.some(isUnread));
   const readEntries = entries.filter((e) => !e.items.some(isUnread));
 
+  // Standard objects read from our own catalogue so the wording matches the
+  // rest of the panel; everything else — custom objects included — takes the
+  // label the workspace gave it.
+  const labelForObject = (objectNameSingular: string) => {
+    const known = OBJECT_LABELS[objectNameSingular as keyof typeof OBJECT_LABELS];
+
+    return known !== undefined
+      ? t(known)
+      : (objectLabels[objectNameSingular] ?? objectNameSingular ?? t('Record'));
+  };
+
   const describe = (item: TimelineRecord) => {
     const eventName = typeof item.name === 'string' ? item.name : '';
     const [eventSubject = '', action = ''] = eventName.split('.');
@@ -1609,13 +1620,7 @@ const ActivityFeed = () => {
       linkedName,
       objectNameSingular,
       changes: extractDiff(item.properties),
-      objectLabel: (() => {
-        const known = OBJECT_LABELS[objectNameSingular as keyof typeof OBJECT_LABELS];
-
-        return known !== undefined
-          ? t(known)
-          : (objectLabels[objectNameSingular] ?? objectNameSingular ?? t('Record'));
-      })(),
+      objectLabel: labelForObject(objectNameSingular),
       actionLabel: (() => {
         const verb = ACTION_LABELS[action as keyof typeof ACTION_LABELS];
 
@@ -2820,6 +2825,14 @@ const ActivityFeed = () => {
     const classColor = getObjectColor(target?.objectNameSingular ?? '');
     const label = target !== null && target.label !== '' ? target.label : t('Record');
     const isHovered = hoveredCard === group.key;
+    // Same second line as every other card: what kind of record this is, what
+    // happened, and who did it. Without it a document read as a loose file
+    // rather than as part of the record's story.
+    const author = readDisplayName(group.items[0].createdBy);
+    const links =
+      target === null
+        ? []
+        : relatedRecords(target.objectNameSingular, target.recordId);
 
     return (
       <div
@@ -2868,6 +2881,101 @@ const ActivityFeed = () => {
             {formatAgo(String(group.items[0].happensAt))}
           </span>
         </div>
+
+        <div
+          style={{
+            marginTop: '2px',
+            marginLeft: '21px',
+            fontSize: '0.92rem',
+            fontWeight: 400,
+            color: palette.textLight,
+            lineHeight: '1.5',
+          }}
+        >
+          {target === null ? t('Record') : labelForObject(target.objectNameSingular)}
+          {' · '}
+          {t('document added')}
+          {author !== '' && (
+            <>
+              {' · '}
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  verticalAlign: 'middle',
+                }}
+              >
+                <InlineAvatar
+                  size={14}
+                  label={author}
+                  color={palette.mutedFill}
+                  textColor={palette.textMid}
+                  avatarUrl={memberAvatars[readMemberId(group.items[0].createdBy) ?? '']}
+                />
+                {author}
+              </span>
+            </>
+          )}
+        </div>
+
+        {links.length > 0 && (
+          <div
+            style={{
+              marginTop: '5px',
+              marginLeft: '21px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              flexWrap: 'wrap',
+              rowGap: '5px',
+            }}
+          >
+            {links.map((link) => {
+              const linkColor = getObjectColor(link.objectNameSingular);
+
+              return (
+                <span
+                  key={link.recordId}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    openRecord(link);
+                  }}
+                  title={t('Open: {label}', { label: link.label })}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    maxWidth: '180px',
+                    padding: '1px 7px 1px 3px',
+                    borderRadius: '4px',
+                    background: `${linkColor}14`,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  <InlineAvatar
+                    size={14}
+                    label={link.label}
+                    color={`${linkColor}2E`}
+                    textColor={linkColor}
+                    avatarUrl={link.avatarUrl}
+                  />
+                  <span
+                    style={{
+                      fontSize: '0.92rem',
+                      color: palette.textMid,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}
+                  >
+                    {link.label}
+                  </span>
+                </span>
+              );
+            })}
+          </div>
+        )}
 
         {group.items.map((item) => {
           const fileName =
