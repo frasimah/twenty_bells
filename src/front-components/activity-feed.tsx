@@ -294,13 +294,15 @@ const resolveTarget = (item: TimelineRecord): ResolvedTarget | null => {
   };
 };
 
+const ATTACHMENT_EVENT = 'linked-attachment.created';
+
 // Attaching a file emits no timeline event at all — verified against a live
 // instance. Attachments carry their own `target<Object>Id` and `createdAt`,
 // so they are read separately and folded into the feed as synthetic events.
 const toAttachmentEvent = (attachment: TimelineRecord): TimelineRecord => ({
   ...attachment,
   id: `attachment-${String(attachment.id)}`,
-  name: 'linked-attachment.created',
+  name: ATTACHMENT_EVENT,
   happensAt: attachment.createdAt,
   linkedRecordCachedName: attachment.name,
   properties: null,
@@ -1535,10 +1537,23 @@ const ActivityFeed = () => {
   // Grouping walks the whole feed twice and sorts the result. It depends on
   // the events alone, so it is rebuilt when they change — not when a card
   // lights up under the cursor.
+  // Files ride at the top of the feed in their own strip, so they are taken
+  // out of the change stream below — otherwise every document would show up
+  // twice, once in the strip and once as a row.
+  const documents = useMemo(
+    () => visibleItems.filter((item) => item.name === ATTACHMENT_EVENT),
+    [visibleItems],
+  );
+
+  const changes = useMemo(
+    () => visibleItems.filter((item) => item.name !== ATTACHMENT_EVENT),
+    [visibleItems],
+  );
+
   const entries = useMemo<FeedEntry[]>(() => {
   const bulkCounts = new Map<string, number>();
 
-  for (const item of visibleItems) {
+  for (const item of changes) {
     const { subject, objectNameSingular, action, author, bucket } =
       describeBulk(item);
     const key = `${subject}|${objectNameSingular}|${action}|${author}|${bucket}`;
@@ -1551,7 +1566,7 @@ const ActivityFeed = () => {
   const groups: FeedGroup[] = [];
   const groupIndex = new Map<string, FeedGroup>();
 
-  for (const item of visibleItems) {
+  for (const item of changes) {
     const { subject, objectNameSingular, action, author, bucket } =
       describeBulk(item);
     const bulkKey = `${subject}|${objectNameSingular}|${action}|${author}|${bucket}`;
@@ -1572,16 +1587,10 @@ const ActivityFeed = () => {
     }
 
     const target = resolveTarget(item);
-    // A file is an event in its own right, not another edit of the record it
-    // hangs on. Sharing the record's key put it behind the "N more events"
-    // counter — and since attachments are older than the latest edits, it was
-    // never the row that got shown.
     const key =
-      item.name === 'linked-attachment.created'
-        ? `attachment:${String(item.id)}`
-        : target !== null
-          ? `${target.objectNameSingular}:${target.recordId}`
-          : `event:${String(item.id)}`;
+      target !== null
+        ? `${target.objectNameSingular}:${target.recordId}`
+        : `event:${String(item.id)}`;
     const existing = groupIndex.get(key);
 
     if (existing === undefined) {
@@ -1602,7 +1611,7 @@ const ActivityFeed = () => {
     ...bulkEntries.map((b) => ({ kind: 'bulk' as const, ...b })),
   ].sort((a, b) => newestOf(b.items) - newestOf(a.items));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibleItems]);
+  }, [changes]);
 
   const unreadCount = visibleItems.filter(isUnread).length;
 
@@ -2859,6 +2868,81 @@ const ActivityFeed = () => {
     );
   };
 
+  // Files first, in a strip of their own: a document is a thing you go back to,
+  // not a change you read once — burying it among status edits made it
+  // effectively invisible.
+  const DOCUMENTS_SHOWN = 5;
+
+  const renderDocument = (item: TimelineRecord) => {
+    const target = resolveTarget(item);
+    const fileName =
+      typeof item.linkedRecordCachedName === 'string'
+        ? item.linkedRecordCachedName
+        : t('Document');
+    const rowKey = `document-${String(item.id)}`;
+    const isHovered = hoveredId === rowKey;
+
+    return (
+      <div
+        key={rowKey}
+        onMouseEnter={() => setHoveredId(rowKey)}
+        onMouseLeave={() => setHoveredId(null)}
+        onClick={target === null ? undefined : () => openRecord(target)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          padding: '6px 16px',
+          cursor: target === null ? 'default' : 'pointer',
+          background: isHovered ? palette.hover : 'transparent',
+        }}
+      >
+        {renderFileMark(fileName)}
+
+        <span
+          style={{
+            fontSize: '0.92rem',
+            fontWeight: 400,
+            color: palette.text,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            flexShrink: 1,
+          }}
+        >
+          {fileName}
+        </span>
+
+        {target !== null && target.label !== '' && (
+          <span
+            style={{
+              fontSize: '0.92rem',
+              color: palette.textLight,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              minWidth: 0,
+            }}
+          >
+            · {target.label}
+          </span>
+        )}
+
+        <span style={{ flex: 1 }} />
+
+        <span
+          style={{
+            fontSize: '0.92rem',
+            color: palette.textLight,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {formatAgo(String(item.happensAt))}
+        </span>
+      </div>
+    );
+  };
+
   const renderSectionHeader = (label: string, count?: number) => (
     <div
       style={{
@@ -3085,6 +3169,48 @@ const ActivityFeed = () => {
 
         {view === 'feed' && (
           <>
+            {documents.length > 0 && (
+              <>
+                {renderSectionHeader(t('Documents'), documents.length)}
+                {(expandedKeys.includes('documents')
+                  ? documents
+                  : documents.slice(0, DOCUMENTS_SHOWN)
+                ).map(renderDocument)}
+
+                {documents.length > DOCUMENTS_SHOWN && (
+                  <div style={{ padding: '4px 16px 0' }}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExpandedKeys((keys) =>
+                          keys.includes('documents')
+                            ? keys.filter((key) => key !== 'documents')
+                            : [...keys, 'documents'],
+                        )
+                      }
+                      style={{
+                        border: 'none',
+                        background: 'transparent',
+                        padding: 0,
+                        fontFamily: 'inherit',
+                        fontSize: '0.92rem',
+                        fontWeight: 400,
+                        color: palette.textMid,
+                        cursor: 'pointer',
+                        textDecoration: 'underline',
+                      }}
+                    >
+                      {expandedKeys.includes('documents')
+                        ? t('Collapse')
+                        : t('{count} more documents', {
+                            count: documents.length - DOCUMENTS_SHOWN,
+                          })}
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+
             {unreadEntries.length > 0 &&
               renderSectionHeader(t('New'), unreadEntries.length)}
             {unreadEntries.map((entry) =>
