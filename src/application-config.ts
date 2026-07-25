@@ -1,0 +1,65 @@
+import { defineApplication, FieldType } from 'twenty-sdk/define';
+
+import {
+  APP_DESCRIPTION,
+  APP_DISPLAY_NAME,
+  APPLICATION_UNIVERSAL_IDENTIFIER,
+} from 'src/constants/universal-identifiers';
+
+export default defineApplication({
+  universalIdentifier: APPLICATION_UNIVERSAL_IDENTIFIER,
+  displayName: APP_DISPLAY_NAME,
+  description: APP_DESCRIPTION,
+  author: 'DCode',
+  category: 'Productivity',
+  // The pinned command button ignores its own `icon` (deprecated) and always
+  // renders the application icon — so the bell has to live here.
+  logo: 'public/logo.svg',
+  // These land on the app's Settings tab, where a workspace admin edits them.
+  // They are workspace-wide by design: anything personal (read marker, chosen
+  // scope) belongs in the app's own records instead.
+  applicationVariables: {
+    POLL_INTERVAL_SECONDS: {
+      universalIdentifier: '9b1e85a3-e465-4956-bf72-f351cd761d9d',
+      description: 'Как часто панель перечитывает события, в секундах',
+      type: FieldType.NUMBER,
+      value: 15,
+    },
+    PAGE_SIZE: {
+      universalIdentifier: '9d11f000-7213-45ff-9bb2-e3c513522bfd',
+      description: 'Сколько последних событий загружать за раз',
+      type: FieldType.NUMBER,
+      value: 50,
+    },
+    SHOW_ATTACHMENTS: {
+      universalIdentifier: 'fc7654f3-3255-4aae-91fd-2396de23a9b1',
+      description:
+        'Показывать прикреплённые документы. Twenty не пишет о них событий, панель читает их отдельным запросом',
+      type: FieldType.BOOLEAN,
+      value: true,
+    },
+    SHOW_TIMELINE_RAIL: {
+      universalIdentifier: '6398ab26-21d9-4f41-87bb-52725e0815b8',
+      description: 'Рисовать вертикальную направляющую таймлайна с точками',
+      type: FieldType.BOOLEAN,
+      value: false,
+    },
+    DEFAULT_SCOPE: {
+      universalIdentifier: 'a1dfadfa-cb68-4a10-b499-3321123152a1',
+      description: 'Что показывать при открытии панели',
+      type: FieldType.SELECT,
+      options: [
+        { label: 'Только связанное со мной', value: 'mine' },
+        { label: 'Все записи workspace', value: 'all' },
+      ],
+      value: 'mine',
+    },
+    SHOW_SEED_BUTTON: {
+      universalIdentifier: 'd2e9abda-6f4d-477f-be6f-82a21cccd589',
+      description:
+        'Показать кнопку генерации тестовых данных. Она создаёт настоящие записи — только для тестового workspace',
+      type: FieldType.BOOLEAN,
+      value: false,
+    },
+  },
+});
