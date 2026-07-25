@@ -2022,16 +2022,6 @@ const ActivityFeed = () => {
                 borderLeft: `2px solid ${palette.border}`,
               }}
             >
-              <div
-                style={{
-                  fontSize: '0.85rem',
-                  color: palette.textLight,
-                  marginBottom: '4px',
-                }}
-              >
-                Текст на этот момент
-              </div>
-
               {readContextBefore(parsed.before).map((block, index) => (
                 <div
                   key={index}
