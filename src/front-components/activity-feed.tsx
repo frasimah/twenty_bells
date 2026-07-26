@@ -725,7 +725,6 @@ const ActivityFeed = () => {
   const [hoveredCard, setHoveredCard] = useState<string | null>(null);
   const [memberId, setMemberId] = useState<string | null>(null);
   const [myCompanyIds, setMyCompanyIds] = useState<string[]>([]);
-  const [myOpportunityIds, setMyOpportunityIds] = useState<string[]>([]);
   const [memberNames, setMemberNames] = useState<Record<string, string>>({});
   const [memberAvatars, setMemberAvatars] = useState<Record<string, string>>({});
   const [enforcement, setEnforcement] = useState<
@@ -943,15 +942,6 @@ const ActivityFeed = () => {
 
       setMyCompanyIds((companies.data?.companies ?? []).map((c) => c.id));
 
-      // Deals you own, for the same reason: a note filed under your deal is
-      // your business even when somebody else wrote it.
-      const deals = await client.get<{
-        data?: { opportunities?: { id: string }[] };
-      }>('/rest/opportunities', {
-        query: { filter: `ownerId[eq]:${id}`, limit: 200, depth: 0 },
-      });
-
-      setMyOpportunityIds((deals.data?.opportunities ?? []).map((d) => d.id));
 
       // Is row-level security actually enforced? Row-level permissions are an
       // Organization-plan feature, so the same build lands on instances where
@@ -1307,28 +1297,20 @@ const ActivityFeed = () => {
       return true;
     }
 
-    // A task is nobody's property either, so its relevance comes from what it
-    // is filed under. Without this a comment on your own deal never arrived.
-    const noteId = item.targetNoteId;
-    const taskId = item.targetTaskId;
+    // A task belongs to the two people it names: whoever set it and whoever has
+    // to do it. Being filed under your deal does not make somebody else's task
+    // yours — that is a question of what the deal shows, not of what your bell
+    // should ring for.
+    const task = item.targetTask as
+      | { assigneeId?: unknown; createdBy?: unknown }
+      | null
+      | undefined;
 
-    if (typeof noteId === 'string' || typeof taskId === 'string') {
-      const links =
-        typeof noteId === 'string'
-          ? noteTargets.filter((link) => String(link.noteId) === noteId)
-          : taskTargets.filter((link) => String(link.taskId) === taskId);
-
-      const filedUnderMine = links.some(
-        (link) =>
-          (typeof link.targetCompanyId === 'string' &&
-            myCompanyIds.includes(link.targetCompanyId)) ||
-          (typeof link.targetOpportunityId === 'string' &&
-            myOpportunityIds.includes(link.targetOpportunityId)),
+    if (task !== null && task !== undefined) {
+      return (
+        task.assigneeId === memberId ||
+        readMemberId(task.createdBy) === memberId
       );
-
-      if (filedUnderMine) {
-        return true;
-      }
     }
 
     const relationKey = Object.keys(item).find(
@@ -1392,9 +1374,6 @@ const ActivityFeed = () => {
       enforcement,
       memberId,
       myCompanyIds,
-      myOpportunityIds,
-      noteTargets,
-      taskTargets,
     ],
   );
 
@@ -1409,7 +1388,10 @@ const ActivityFeed = () => {
       return true;
     }
 
-    return task.assigneeId === memberId;
+    return (
+      task.assigneeId === memberId ||
+      readMemberId(task.createdBy) === memberId
+    );
   });
 
   const overdueTasks = openTasks
