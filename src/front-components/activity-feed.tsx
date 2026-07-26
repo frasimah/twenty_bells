@@ -1693,7 +1693,44 @@ const ActivityFeed = () => {
         </div>
       )}
 
-      {described.changes.map((change) => (
+      {described.changes.map((change) => {
+        // What somebody wrote is speech, not a field value. Buzz and Tasks
+        // render it as a comment; the feed used to print the same text as
+        // `Body: appended: …`, which read like a database column. Same content,
+        // same quoted shape — the author is already on the line above.
+        const written = isRichTextValue(change.beforeRaw) || isRichTextValue(change.afterRaw)
+          ? readNoteEdit({
+              properties: { diff: { bodyV2: { before: change.beforeRaw, after: change.afterRaw } } },
+            } as TimelineRecord)
+          : null;
+
+        if (written !== null && written.text !== '') {
+          return (
+            <div
+              key={change.field}
+              style={{
+                marginTop: '5px',
+                paddingLeft: '8px',
+                borderLeft: `2px solid ${palette.border}`,
+                fontSize: '0.92rem',
+                fontWeight: 400,
+                color: palette.textMid,
+                lineHeight: '1.55',
+                whiteSpace: 'pre-wrap',
+                overflowWrap: 'anywhere',
+              }}
+            >
+              {written.isRewrite && (
+                <span style={{ color: palette.textLight }}>
+                  {t('rewrote the text')}{' '}
+                </span>
+              )}
+              {written.text}
+            </div>
+          );
+        }
+
+        return (
         <div
           key={change.field}
           style={{
@@ -1730,7 +1767,8 @@ const ActivityFeed = () => {
             </>
           )}
         </div>
-      ))}
+        );
+      })}
     </>
   );
 
@@ -2074,15 +2112,23 @@ const ActivityFeed = () => {
     const attachments = events.length > 0 ? files : files.slice(1);
     const isExpanded = expandedKeys.includes(group.key);
 
+    // A feed row opens the record exactly like a card does, so it answers the
+    // cursor the same way. A row has no frame to outline, so the reaction is a
+    // fill — the standard list affordance — rather than the card's border.
+    const isRowHovered = hoveredCard === group.key;
+
     return (
       <div
         key={group.key}
+        onMouseEnter={() => setHoveredCard(group.key)}
+        onMouseLeave={() => setHoveredCard(null)}
         style={{
-          paddingBottom: '10px',
+          paddingBottom: '12px',
           borderBottom: SHOW_TIMELINE_RAIL
             ? 'none'
             : `1px solid ${palette.border}`,
-          background: unread ? 'transparent' : 'transparent',
+          background: isRowHovered ? palette.hover : 'transparent',
+          transition: 'background 140ms ease',
         }}
       >
         {renderHead(head, unread)}
@@ -2743,14 +2789,20 @@ const ActivityFeed = () => {
         ? t(verbMessage)
         : described.actionLabel;
 
+    const isRowHovered = hoveredCard === entry.key;
+
     return (
       <div
         key={entry.key}
+        onMouseEnter={() => setHoveredCard(entry.key)}
+        onMouseLeave={() => setHoveredCard(null)}
         style={{
-          paddingBottom: '10px',
+          paddingBottom: '12px',
           borderBottom: SHOW_TIMELINE_RAIL
             ? 'none'
             : `1px solid ${palette.border}`,
+          background: isRowHovered ? palette.hover : 'transparent',
+          transition: 'background 140ms ease',
         }}
       >
         <div style={{ display: 'flex', gap: '11px', padding: '10px 16px 0' }}>
