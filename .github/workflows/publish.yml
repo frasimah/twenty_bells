@@ -31,10 +31,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # The runner ships Yarn 1, and `packageManager` pins 4.x — without this
+      # `yarn install` refuses before anything else can go wrong. Ahead of
+      # setup-node, which reads the resolved Yarn when caching.
+      - name: Enable Corepack
+        run: corepack enable
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version-file: '.nvmrc'
+          cache: yarn
           registry-url: https://registry.npmjs.org
 
       - name: Update npm
