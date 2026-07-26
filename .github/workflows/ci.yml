@@ -9,9 +9,6 @@ on:
 permissions:
   contents: read
 
-env:
-  TWENTY_VERSION: latest
-
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -19,6 +16,14 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Both ends of the supported range. The floor is what `engines.twenty`
+    # promises, and self-hosted instances sit on it for months — a promise
+    # nothing tests is a promise waiting to break.
+    strategy:
+      fail-fast: false
+      matrix:
+        twenty-version: ['2.21.0', 'latest']
+    name: test (twenty ${{ matrix.twenty-version }})
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,7 +32,7 @@ jobs:
         id: twenty
         uses: twentyhq/twenty/.github/actions/spawn-twenty-app-dev-test@main
         with:
-          twenty-version: ${{ env.TWENTY_VERSION }}
+          twenty-version: ${{ matrix.twenty-version }}
 
       - name: Enable Corepack
         run: corepack enable

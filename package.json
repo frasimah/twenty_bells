@@ -1,6 +1,6 @@
 {
   "name": "twenty-bells",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "The Bell — an activity feed for Twenty: what changed in the workspace, team notes with their comments, documents, and the tasks that are overdue.",
   "license": "MIT",
   "author": {
@@ -20,7 +20,7 @@
     "node": "^24.5.0",
     "npm": "please-use-yarn",
     "yarn": ">=4.0.2",
-    "twenty": ">=2.23.0"
+    "twenty": ">=2.21.0"
   },
   "keywords": [
     "twenty-app",
