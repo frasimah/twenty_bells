@@ -7,12 +7,22 @@ An activity feed inside Twenty. A bell button in the top-right corner opens a si
 ## What it does
 
 - **Change feed.** Records created and edited, read from the standard `timelineActivity` — custom objects included. Field changes render as a diff, and `SELECT` values keep the same coloured labels the record page uses.
-- **Documents.** Twenty emits no timeline event for an attachment, so the panel reads files separately. They lead the feed in their own strip, grouped by the record they belong to: a deal, a contact, a custom object.
+- **Documents.** Twenty emits no timeline event for an attachment, so the panel reads files separately and files each one into the card of the record it hangs on — a deal, a contact, a custom object. Clicking the file name opens the attachment; clicking anywhere else on the card opens the record.
 - **Buzz.** Team notes as posts with their comments underneath. Twenty has no comment object — amending a note's body is the mechanism — so each thread is reconstructed from the `note.updated` diffs, and every reply says who wrote it and when.
-- **Tasks.** Overdue first, oldest first, then everything else by due date. Done tasks are dropped. If a task belongs to a deal, the deal is on the row.
+- **Tasks.** Overdue first, oldest first, then everything else by due date. Done tasks are dropped. If a task belongs to a deal, the deal is on the row. The badge counts what is assigned to you and not done — asked of the server, so it is the real number rather than the length of the loaded page.
 - **Grouping.** Several events on one record collapse into a single line with a counter that expands in place. A burst of identical events — an import, a bulk edit — becomes one row like `29 × document · added`.
 - **Read / unread.** The marker is personal, stored per `userId` in the app's own object.
 - **Opens the record.** A click opens the object in Twenty's side panel without leaving the page.
+
+## What it costs to keep open
+
+Nothing at all until the bell is clicked. The panel is a side panel and Twenty loads it on demand — the renderer is not even fetched before that, and closing the panel unmounts the whole thing.
+
+Open, it polls once a minute, and every tick asks one cheap question first: the id of the newest event and the size of the window, one row without relations, about 2 KB. Unchanged means the tab already holds the truth and nothing else is fetched. Five minutes without a click, a keypress or a scroll inside the panel and it stops asking altogether, saying so in a line at the top; the next touch resumes it and refreshes at once.
+
+On a workspace of some 1,800 tasks and as many notes that comes to roughly 10 KB a minute while somebody is actually reading it.
+
+The trade is latency: a new event surfaces within a minute rather than instantly.
 
 ## Requirements
 
