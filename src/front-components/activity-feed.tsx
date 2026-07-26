@@ -2262,7 +2262,9 @@ const ActivityFeed = () => {
       <div
         key={String(item.id)}
         style={{
-          padding: '6px 16px 0',
+          padding: '8px 16px 0 13px',
+          marginLeft: '16px',
+          borderLeft: `2px solid ${palette.border}`,
         }}
       >
         <div
@@ -2273,14 +2275,18 @@ const ActivityFeed = () => {
             gap: '10px',
           }}
         >
+          {/* Most of what hides behind the counter is a creation, and a
+              creation carries no diff at all — the row is its own content.
+              Named and weighted like the head's own line, or expanding the
+              card reads as nothing having happened. */}
           <span
             style={{
               fontSize: '0.92rem',
               fontWeight: 400,
-              color: palette.textLight,
+              color: palette.textMid,
             }}
           >
-            {described.actionLabel}
+            {described.objectLabel} · {described.actionLabel}
             {described.author !== '' ? ` · ${described.author}` : ''}
           </span>
           <span
