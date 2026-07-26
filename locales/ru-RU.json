@@ -20,7 +20,7 @@
   "No open tasks.": "Открытых задач нет.",
   "Note": "Заметка",
   "Nothing has happened yet. Create or change any record and the event shows up here.": "Пока ничего не происходило. Создайте или измените любую запись — событие появится здесь.",
-  "Open note text": "Открыть текст заметки",
+  "Open note": "Открыть заметку",
   "Open task": "Открыть задачу",
   "Open tasks in total: {count}": "Всего активных задач: {count}",
   "Open tasks: overdue first, then by due date.": "Открытые задачи: сначала просроченные, дальше по сроку.",

@@ -725,6 +725,7 @@ const ActivityFeed = () => {
   const [hoveredCard, setHoveredCard] = useState<string | null>(null);
   const [memberId, setMemberId] = useState<string | null>(null);
   const [myCompanyIds, setMyCompanyIds] = useState<string[]>([]);
+  const [myOpportunityIds, setMyOpportunityIds] = useState<string[]>([]);
   const [memberNames, setMemberNames] = useState<Record<string, string>>({});
   const [memberAvatars, setMemberAvatars] = useState<Record<string, string>>({});
   const [enforcement, setEnforcement] = useState<
@@ -941,6 +942,16 @@ const ActivityFeed = () => {
       });
 
       setMyCompanyIds((companies.data?.companies ?? []).map((c) => c.id));
+
+      // Deals you own, for the same reason: a note filed under your deal is
+      // your business even when somebody else wrote it.
+      const deals = await client.get<{
+        data?: { opportunities?: { id: string }[] };
+      }>('/rest/opportunities', {
+        query: { filter: `ownerId[eq]:${id}`, limit: 200, depth: 0 },
+      });
+
+      setMyOpportunityIds((deals.data?.opportunities ?? []).map((d) => d.id));
 
       // Is row-level security actually enforced? Row-level permissions are an
       // Organization-plan feature, so the same build lands on instances where
@@ -1256,15 +1267,6 @@ const ActivityFeed = () => {
   // block id anywhere in the front-component API. EditRichText is the closest
   // thing: it opens the note's body instead of the record overview, and since
   // comments are appended the newest text sits at the end of it.
-  const openNoteBody = (noteId: string) => {
-    void openSidePanelPage({
-      page: SidePanelPages.EditRichText,
-      recordId: noteId,
-      objectNameSingular: 'note',
-      fieldName: 'bodyV2',
-    });
-  };
-
   const openRecord = (target: ResolvedTarget) => {
     void openSidePanelPage({
       page: SidePanelPages.ViewRecord,
@@ -1285,8 +1287,48 @@ const ActivityFeed = () => {
       return true;
     }
 
-    if (item.workspaceMemberId === memberId) {
+    // Anything you did is yours. Events made through the API carry no
+    // workspaceMember, only the ACTOR in `createdBy` — reading just the first
+    // of the two dropped every note and comment written over the API.
+    if (
+      item.workspaceMemberId === memberId ||
+      readMemberId(item.createdBy) === memberId
+    ) {
       return true;
+    }
+
+    // A note is addressed to the team by definition: it has no owner, and the
+    // ones that matter most — the standalone ones — are filed under nothing at
+    // all. Judging them by ownership kept every comment out of the feed, so
+    // they are relevant to everyone, like a message on a board.
+    const eventSubject = String(item.name ?? '').split('.')[0];
+
+    if (eventSubject === 'note' || eventSubject === 'linked-note') {
+      return true;
+    }
+
+    // A task is nobody's property either, so its relevance comes from what it
+    // is filed under. Without this a comment on your own deal never arrived.
+    const noteId = item.targetNoteId;
+    const taskId = item.targetTaskId;
+
+    if (typeof noteId === 'string' || typeof taskId === 'string') {
+      const links =
+        typeof noteId === 'string'
+          ? noteTargets.filter((link) => String(link.noteId) === noteId)
+          : taskTargets.filter((link) => String(link.taskId) === taskId);
+
+      const filedUnderMine = links.some(
+        (link) =>
+          (typeof link.targetCompanyId === 'string' &&
+            myCompanyIds.includes(link.targetCompanyId)) ||
+          (typeof link.targetOpportunityId === 'string' &&
+            myOpportunityIds.includes(link.targetOpportunityId)),
+      );
+
+      if (filedUnderMine) {
+        return true;
+      }
     }
 
     const relationKey = Object.keys(item).find(
@@ -1345,7 +1387,15 @@ const ActivityFeed = () => {
       enforcement === 'server' ? allItems : allItems.filter(isMine),
     // `isMine` is rebuilt every render; what it actually reads is listed here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [allItems, enforcement, memberId, myCompanyIds],
+    [
+      allItems,
+      enforcement,
+      memberId,
+      myCompanyIds,
+      myOpportunityIds,
+      noteTargets,
+      taskTargets,
+    ],
   );
 
   // Tasks view: what is hanging, not what changed. Done tasks are dropped —
@@ -2180,20 +2230,22 @@ const ActivityFeed = () => {
         onMouseEnter={() => setHoveredCard(group.key)}
         onMouseLeave={() => setHoveredCard(null)}
         style={{
+          margin: '10px 12px',
           paddingBottom: '12px',
-          borderBottom: SHOW_TIMELINE_RAIL
-            ? 'none'
-            : `1px solid ${palette.border}`,
-          // Unread rows carry the tint; hovering deepens it rather than
-          // swapping it for grey, so the cursor never hides the state.
+          border: `1px solid ${
+            isRowHovered ? palette.cardHoverBorder : palette.border
+          }`,
+          borderRadius: '10px',
+          // Unread keeps the tint; a read card sits on the panel's own surface.
           background: unread
             ? isRowHovered
               ? palette.unreadHover
               : palette.unread
-            : isRowHovered
-              ? palette.hover
-              : 'transparent',
-          transition: 'background 140ms ease',
+            : colorScheme === 'dark'
+              ? '#1B1B1B'
+              : '#FFFFFF',
+          overflow: 'hidden',
+          transition: 'background 140ms ease, border-color 140ms ease',
         }}
       >
         {renderHead(head, unread, touchedAt)}
@@ -2772,8 +2824,13 @@ const ActivityFeed = () => {
                 renderComment(
                   edit,
                   parsed,
-                  () => openNoteBody(String(note.id)),
-                  t('Open note text'),
+                  () =>
+                    openRecord({
+                      objectNameSingular: 'note',
+                      recordId: String(note.id),
+                      label: title,
+                    }),
+                  t('Open note'),
                 ),
             )}
           </div>
@@ -2862,18 +2919,21 @@ const ActivityFeed = () => {
         onMouseEnter={() => setHoveredCard(entry.key)}
         onMouseLeave={() => setHoveredCard(null)}
         style={{
+          margin: '10px 12px',
           paddingBottom: '12px',
-          borderBottom: SHOW_TIMELINE_RAIL
-            ? 'none'
-            : `1px solid ${palette.border}`,
+          border: `1px solid ${
+            isRowHovered ? palette.cardHoverBorder : palette.border
+          }`,
+          borderRadius: '10px',
           background: unread
             ? isRowHovered
               ? palette.unreadHover
               : palette.unread
-            : isRowHovered
-              ? palette.hover
-              : 'transparent',
-          transition: 'background 140ms ease',
+            : colorScheme === 'dark'
+              ? '#1B1B1B'
+              : '#FFFFFF',
+          overflow: 'hidden',
+          transition: 'background 140ms ease, border-color 140ms ease',
         }}
       >
         <div style={{ display: 'flex', gap: '11px', padding: '10px 16px 0' }}>
