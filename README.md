@@ -51,27 +51,19 @@ The panel calls the API under the **application's** role, not under the permissi
 - on the **Organization** plan row-level permissions apply — Twenty scopes the data itself and the panel adds no filtering of its own;
 - on other plans the predicates sync but stay inert, and the panel filters client-side: by deal owner, company account owner and task assignee.
 
-Which mode is live is detected at runtime: the panel asks the server for records it should have withheld and reads the answer. The UI shows the result — either a "Only mine" toggle or an "Access: server" badge.
+Which mode is live is detected at runtime: the panel asks the server for records it should have withheld and reads the answer. When Twenty does the scoping itself, the header carries an **Access: server** badge; otherwise the panel filters on its own and says nothing.
 
 **The client-side filter is not a security boundary.** Until row-level permissions are enforced, the server hands the whole workspace to the browser. Install the app where that is acceptable.
 
 ## Settings
 
-| Variable | Type | Value |
-| --- | --- | --- |
-| `POLL_INTERVAL_SECONDS` | number | 30 |
-| `PAGE_SIZE` | number | 50 |
-| `SHOW_ATTACHMENTS` | toggle | on |
-| `SHOW_TIMELINE_RAIL` | toggle | off |
-| `DEFAULT_SCOPE` | select | "Only what relates to me" |
+The app deliberately ships **no Settings tab**. What would be there — poll interval, page size — lives in `src/front-components/activity-feed.tsx` as constants; change one and run `yarn twenty apply`.
 
-> **The Settings tab currently has no effect.** The host injects variable values into front components still **encrypted** — `enc:v2:<workspace>:<blob>` — and neither `twenty-sdk` nor `twenty-client-sdk` decrypts them. Verified by printing the raw payload inside the panel: `getApplicationVariable('SHOW_ATTACHMENTS')` returns the ciphertext, not `true`.
->
-> An unreadable value is therefore treated as "not set", and the panel runs on the values above, which live in the manifest (`src/application-config.ts`). To change behaviour, edit the manifest and run `yarn twenty apply`. The toggles in the UI are useless until Twenty decrypts them.
+> The reason is not minimalism. The host injects application-variable values into a front component still **encrypted** — `enc:v2:<workspace>:<blob>` — and neither `twenty-sdk` nor `twenty-client-sdk` decrypts them. Verified by printing the raw payload inside the panel: `getApplicationVariable('SHOW_ATTACHMENTS')` returned the ciphertext, not `true`, and the panel read it as "off" and hid every file. Switches an admin can move that change nothing are worse than no switches, so they are gone until Twenty decrypts them.
 >
 > This cannot be diagnosed from outside either: the metadata API refuses to read the values back — an API key gets `Cannot return null for non-nullable field Application.applicationVariables`, the application token is denied by permissions. Writing (`updateOneApplicationVariable`) does work.
 
-Settings are workspace-wide; the SDK has no per-user ones. Anything personal lives in the app's `feedReadState` object.
+Application variables are workspace-wide anyway; the SDK has no per-user ones. Anything personal lives in the app's `feedReadState` object.
 
 ## What the feed cannot show
 

@@ -1,4 +1,4 @@
-import { defineApplication, FieldType } from 'twenty-sdk/define';
+import { defineApplication } from 'twenty-sdk/define';
 
 import {
   APP_DESCRIPTION,
@@ -23,34 +23,11 @@ export default defineApplication({
   // of two. `galleryImages` needs real screenshots of the panel — add them to
   // public/ before the first marketplace release.
   //
-  // These land on the app's Settings tab, where a workspace admin edits them.
-  // They are workspace-wide by design: anything personal (read marker, chosen
-  // scope) belongs in the app's own records instead.
-  applicationVariables: {
-    POLL_INTERVAL_SECONDS: {
-      universalIdentifier: '9b1e85a3-e465-4956-bf72-f351cd761d9d',
-      description: 'How often the panel refetches events, in seconds',
-      type: FieldType.NUMBER,
-      value: 30,
-    },
-    PAGE_SIZE: {
-      universalIdentifier: '9d11f000-7213-45ff-9bb2-e3c513522bfd',
-      description: 'How many recent records to load at a time',
-      type: FieldType.NUMBER,
-      value: 50,
-    },
-    SHOW_ATTACHMENTS: {
-      universalIdentifier: 'fc7654f3-3255-4aae-91fd-2396de23a9b1',
-      description:
-        'Show attached documents. Twenty emits no events for them, so the panel reads them separately',
-      type: FieldType.BOOLEAN,
-      value: true,
-    },
-    SHOW_TIMELINE_RAIL: {
-      universalIdentifier: '6398ab26-21d9-4f41-87bb-52725e0815b8',
-      description: 'Draw the vertical timeline rail with per-event dots',
-      type: FieldType.BOOLEAN,
-      value: false,
-    },
-  },
+  // No `applicationVariables` on purpose. They would render a Settings tab an
+  // admin can edit, and nothing they typed would reach the panel: the host
+  // injects the values into front components still encrypted
+  // (`enc:v2:<workspace>:<blob>`) and neither twenty-sdk nor twenty-client-sdk
+  // decrypts them — verified by printing the raw payload inside the panel. Four
+  // switches that silently do nothing are worse than no Settings tab, so the
+  // values live in the component as constants until Twenty decrypts them.
 });

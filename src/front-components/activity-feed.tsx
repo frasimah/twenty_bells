@@ -1,6 +1,5 @@
 import { defineFrontComponent } from 'twenty-sdk/define';
 import {
-  getApplicationVariable,
   msg,
   t,
   openSidePanelPage,
@@ -18,43 +17,18 @@ import { IconBrandGoogle, IconFile, IconLink } from 'twenty-ui/icon';
 
 import { ACTIVITY_FEED_FRONT_COMPONENT_UNIVERSAL_IDENTIFIER } from 'src/constants/universal-identifiers';
 
-// Everything below comes from the app's Settings tab, with the manifest
-// default as the fallback.
+// These were application variables once, editable from the app's Settings tab.
+// The host injects such values into a front component still encrypted —
+// `enc:v2:<workspace>:<blob>` — and nothing in twenty-sdk or twenty-client-sdk
+// decrypts them, so nothing an admin typed ever arrived. Treating a ciphertext
+// as a value is what turned SHOW_ATTACHMENTS off and kept every file out of the
+// feed. They are constants until Twenty decrypts them.
 //
-// The host injects the values still encrypted — `enc:v2:<workspace>:<blob>` —
-// and nothing in twenty-sdk or twenty-client-sdk decrypts them, so a front
-// component simply cannot read what an admin typed. Verified by printing the
-// raw payload in the panel. Treating a ciphertext as a value is what turned
-// SHOW_ATTACHMENTS off and kept every file out of the feed: the string is
-// neither `'true'` nor a number, so every setting silently read as false or
-// NaN. Until Twenty decrypts these, an unreadable value means "not set".
-const readSetting = (key: string): unknown => {
-  const raw: unknown = getApplicationVariable(key);
-
-  return typeof raw === 'string' && raw.startsWith('enc:') ? undefined : raw;
-};
-
-const readNumberSetting = (key: string, fallback: number) => {
-  const parsed = Number(readSetting(key));
-
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-};
-
-const readBooleanSetting = (key: string, fallback: boolean) => {
-  const raw = readSetting(key);
-
-  if (raw === undefined || raw === null || raw === '') {
-    return fallback;
-  }
-
-  return typeof raw === 'boolean' ? raw : String(raw).toLowerCase() === 'true';
-};
-
 // Thirty seconds, not fifteen. The panel stays open all day, and each cycle
 // parses a few hundred kilobytes of JSON into objects the sandbox then has to
 // collect — that churn is what made Safari reclaim the tab.
-const POLL_INTERVAL_MS = readNumberSetting('POLL_INTERVAL_SECONDS', 30) * 1000;
-const PAGE_SIZE = readNumberSetting('PAGE_SIZE', 50);
+const POLL_INTERVAL_MS = 30 * 1000;
+const PAGE_SIZE = 50;
 // What the feed holds, deliberately fixed. Paging further back turned the
 // panel into an archive nobody scrolled: a hundred latest events is what a
 // person actually catches up on, and one request keeps them exact — no gaps
@@ -71,8 +45,6 @@ const feedFilter = () =>
   `happensAt[gte]:${new Date(
     Date.now() - FEED_WINDOW_DAYS * 24 * 60 * 60 * 1000,
   ).toISOString()},not(name[startsWith]:${HIDDEN_EVENT_PREFIX})`;
-const SHOW_TIMELINE_RAIL = readBooleanSetting('SHOW_TIMELINE_RAIL', false);
-const SHOW_ATTACHMENTS = readBooleanSetting('SHOW_ATTACHMENTS', true);
 // Links are looked up for the whole page of records, and a record can carry
 // several — so they get a wider budget than the page itself.
 const LINK_PAGE_SIZE = Math.min(PAGE_SIZE * 4, 200);
@@ -1079,10 +1051,6 @@ const ActivityFeed = () => {
   }, []);
 
   const loadDocuments = useCallback(async () => {
-    if (!SHOW_ATTACHMENTS) {
-      return;
-    }
-
     try {
       const response = await new RestApiClient().get<{
         data?: { attachments?: TimelineRecord[] };
@@ -1938,7 +1906,6 @@ const ActivityFeed = () => {
       ownLinks.length > 0 ? ownLinks : contextFor(item).slice(0, 2);
     const isActive = unread && !isBroken;
     const classColor = getObjectColor(objectNameSingular);
-    const dotColor = isActive ? classColor : palette.rail;
     const chipLabel = !isBroken && target.label !== '' ? target.label : objectLabel;
 
     return (
@@ -1951,41 +1918,6 @@ const ActivityFeed = () => {
           cursor: isBroken ? 'default' : 'pointer',
         }}
       >
-        {SHOW_TIMELINE_RAIL && (
-          <div
-            style={{
-              position: 'relative',
-              width: '9px',
-              flexShrink: 0,
-              display: 'flex',
-              justifyContent: 'center',
-            }}
-          >
-            <div
-              style={{
-                position: 'absolute',
-                top: 0,
-                bottom: 0,
-                width: '1px',
-                background: palette.rail,
-              }}
-            />
-            <div
-              style={{
-                position: 'relative',
-                marginTop: '5px',
-                width: unread ? '7px' : '5px',
-                height: unread ? '7px' : '5px',
-                borderRadius: '50%',
-                background: isBroken ? 'transparent' : dotColor,
-                border: isBroken ? `1px solid ${palette.textLight}` : 'none',
-                boxShadow: unread ? `0 0 0 3px ${dotColor}4D` : 'none',
-                alignSelf: 'flex-start',
-              }}
-            />
-          </div>
-        )}
-
         <div style={{ flex: 1, minWidth: 0 }}>
           <div
             style={{
@@ -2158,7 +2090,6 @@ const ActivityFeed = () => {
         key={String(item.id)}
         style={{
           padding: '6px 16px 0',
-          marginLeft: SHOW_TIMELINE_RAIL ? '20px' : '0',
         }}
       >
         <div
@@ -2258,7 +2189,6 @@ const ActivityFeed = () => {
           <div
             style={{
               padding: '0 16px',
-              marginLeft: SHOW_TIMELINE_RAIL ? '20px' : '0',
             }}
           >
             {attachments.map((file) => {
@@ -2323,7 +2253,6 @@ const ActivityFeed = () => {
           <div
             style={{
               padding: attachments.length > 0 ? '8px 16px 0' : '0 16px',
-              marginLeft: SHOW_TIMELINE_RAIL ? '20px' : '0',
             }}
           >
             <button
@@ -3307,23 +3236,6 @@ const ActivityFeed = () => {
 
         {view === 'feed' && (
           <>
-            {/* The setting is workspace-wide and easy to forget about. Saying
-                so beats an empty strip that reads as a broken panel. */}
-            {!SHOW_ATTACHMENTS && (
-              <>
-                {renderSectionHeader(t('Documents'), 0)}
-                <div
-                  style={{
-                    padding: '2px 16px 6px',
-                    fontSize: '0.92rem',
-                    color: palette.textLight,
-                  }}
-                >
-                  {t('Turned off in the app settings — SHOW_ATTACHMENTS')}
-                </div>
-              </>
-            )}
-
             {unreadEntries.length > 0 &&
               renderSectionHeader(t('New'), unreadEntries.length)}
             {unreadEntries.map((entry) =>
