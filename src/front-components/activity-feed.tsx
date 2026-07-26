@@ -1504,6 +1504,12 @@ const ActivityFeed = () => {
     return [...events, ...files].sort(byHappensAtDesc);
   }, [visibleItems]);
 
+  // What the feed actually shows: after the personal filter and after the cap.
+  const visibleEventCount = useMemo(
+    () => changes.filter((item) => item.name !== ATTACHMENT_EVENT).length,
+    [changes],
+  );
+
   const entries = useMemo<FeedEntry[]>(() => {
   const bulkCounts = new Map<string, number>();
 
@@ -3217,14 +3223,25 @@ const ActivityFeed = () => {
                     color={palette.textMid}
                   />
                 )}
-                <span style={{ fontSize: '0.85rem', color: palette.textLight }}>
-                  {/* Against what is reachable, not against the whole history:
-                      the feed stops at FEED_LIMIT, and the server's total also
-                      counts events the panel never shows. */}
-                  {t('{loaded} of {total} events', {
-                    loaded: loadedEvents.length,
-                    total: Math.min(FEED_LIMIT, feedTotal),
-                  })}
+                {/* Counts what is on the screen. Counting what had been
+                    fetched instead read as "44 events" above sixteen visible
+                    rows, because the personal filter drops the rest — and the
+                    server's own total counts events the panel never renders.
+                    When the filter hides nothing, both numbers coincide and
+                    only one is shown. */}
+                <span
+                  title={t(
+                    'The feed keeps the {limit} most recent events; the workspace has {total}',
+                    { limit: FEED_LIMIT, total: feedTotal },
+                  )}
+                  style={{ fontSize: '0.85rem', color: palette.textLight }}
+                >
+                  {visibleEventCount === loadedEvents.length
+                    ? t('{count} events', { count: visibleEventCount })
+                    : t('{shown} shown · {loaded} loaded', {
+                        shown: visibleEventCount,
+                        loaded: loadedEvents.length,
+                      })}
                 </span>
               </div>
             )}

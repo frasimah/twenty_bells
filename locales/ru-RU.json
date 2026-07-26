@@ -1,5 +1,4 @@
 {
-  " ": "",
   "Access: server": "Права: сервер",
   "By due date": "По сроку",
   "Collapse": "Свернуть",
@@ -32,7 +31,6 @@
   "Opportunity": "Сделка",
   "Overdue": "Просрочено",
   "Overdue: {count}": "Просрочено: {count}",
-  "Overview": "Обзор",
   "Per-user last seen marker for the activity feed": "Персональная отметка прочтения для ленты",
   "Person": "Контакт",
   "Record": "Запись",
@@ -45,6 +43,7 @@
   "Tasks": "Задачи",
   "Team notes and the comments on them.": "Заметки команды и комментарии к ним.",
   "The Bell": "",
+  "The feed keeps the {limit} most recent events; the workspace has {total}": "Лента держит {limit} последних событий; в рабочем пространстве их {total}",
   "Turned off in the app settings — SHOW_ATTACHMENTS": "Выключено в настройках приложения — SHOW_ATTACHMENTS",
   "Unknown author": "Автор неизвестен",
   "Untitled": "Без названия",
@@ -56,7 +55,6 @@
   "created": "создана",
   "deleted": "удалена",
   "document": "документ",
-  "document added": "документ добавлен",
   "edited": "изменён",
   "in {days}d": "через {days} дн",
   "just now": "только что",
@@ -72,14 +70,13 @@
   "text shortened": "текст сокращён",
   "today": "сегодня",
   "updated": "изменена",
-  "{count} documents hidden by \"Only mine\" — show all": "{count} документов скрыто фильтром «Только мои» — показать все",
+  "{count} events": "{count} событий",
   "{count} more events on this record": "ещё {count} событий по этой записи",
-  "{count} more records with documents": "ещё {count} записей с документами",
   "{count} × {object}": "{count} × {object}",
   "{days}d": "{days} дн",
   "{days}d overdue": "просрочено на {days} дн",
   "{hidden} more comments": "ещё {hidden} комментариев",
   "{hours}h": "{hours} ч",
-  "{loaded} of {total} events": "{loaded} событий из {total}",
-  "{minutes}m": "{minutes} мин"
+  "{minutes}m": "{minutes} мин",
+  "{shown} shown · {loaded} loaded": "{shown} на экране · {loaded} загружено"
 }

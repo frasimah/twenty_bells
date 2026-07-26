@@ -1,5 +1,4 @@
 {
-  " ": " ",
   "Access: server": "Access: server",
   "By due date": "By due date",
   "Collapse": "Collapse",
@@ -32,7 +31,6 @@
   "Opportunity": "Opportunity",
   "Overdue": "Overdue",
   "Overdue: {count}": "Overdue: {count}",
-  "Overview": "Overview",
   "Per-user last seen marker for the activity feed": "Per-user last seen marker for the activity feed",
   "Person": "Person",
   "Record": "Record",
@@ -45,6 +43,7 @@
   "Tasks": "Tasks",
   "Team notes and the comments on them.": "Team notes and the comments on them.",
   "The Bell": "The Bell",
+  "The feed keeps the {limit} most recent events; the workspace has {total}": "The feed keeps the {limit} most recent events; the workspace has {total}",
   "Turned off in the app settings — SHOW_ATTACHMENTS": "Turned off in the app settings — SHOW_ATTACHMENTS",
   "Unknown author": "Unknown author",
   "Untitled": "Untitled",
@@ -56,7 +55,6 @@
   "created": "created",
   "deleted": "deleted",
   "document": "document",
-  "document added": "document added",
   "edited": "edited",
   "in {days}d": "in {days}d",
   "just now": "just now",
@@ -72,14 +70,13 @@
   "text shortened": "text shortened",
   "today": "today",
   "updated": "updated",
-  "{count} documents hidden by \"Only mine\" — show all": "{count} documents hidden by \"Only mine\" — show all",
+  "{count} events": "{count} events",
   "{count} more events on this record": "{count} more events on this record",
-  "{count} more records with documents": "{count} more records with documents",
   "{count} × {object}": "{count} × {object}",
   "{days}d": "{days}d",
   "{days}d overdue": "{days}d overdue",
   "{hidden} more comments": "{hidden} more comments",
   "{hours}h": "{hours}h",
-  "{loaded} of {total} events": "{loaded} of {total} events",
-  "{minutes}m": "{minutes}m"
+  "{minutes}m": "{minutes}m",
+  "{shown} shown · {loaded} loaded": "{shown} shown · {loaded} loaded"
 }
