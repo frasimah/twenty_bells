@@ -7,7 +7,7 @@ import {
   useColorScheme,
   useUserId,
 } from 'twenty-sdk/front-component';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RestApiClient } from 'twenty-client-sdk/rest';
 // Named imports only: `useIcons` and `IconsProvider` drag in the whole Tabler
 // set, several megabytes of it. twenty-ui re-exports a curated subset, and the
@@ -29,6 +29,11 @@ import { ACTIVITY_FEED_FRONT_COMPONENT_UNIVERSAL_IDENTIFIER } from 'src/constant
 // collect — that churn is what made Safari reclaim the tab.
 const POLL_INTERVAL_MS = 30 * 1000;
 const PAGE_SIZE = 50;
+// A panel left open on a second screen should not poll all day. After this long
+// without a touch the loop goes quiet, and the next click inside the panel
+// wakes it and refreshes at once — so idle time costs a timer tick, not a
+// request.
+const IDLE_PAUSE_MS = 15 * 60 * 1000;
 // What the feed holds, deliberately fixed. Paging further back turned the
 // panel into an archive nobody scrolled: a hundred latest events is what a
 // person actually catches up on, and one request keeps them exact — no gaps
@@ -740,6 +745,22 @@ const ActivityFeed = () => {
   const [companyDeals, setCompanyDeals] = useState<
     Record<string, { id: string; name: string }>
   >({});
+  // Refs, not state: a click must not re-create the polling interval, and the
+  // interval must read the latest values without being rebuilt around them.
+  const activeAtRef = useRef(Date.now());
+  const pausedRef = useRef(false);
+  const refreshRef = useRef<() => void>(() => {});
+  const [isPaused, setIsPaused] = useState(false);
+
+  const markActive = useCallback(() => {
+    activeAtRef.current = Date.now();
+
+    if (pausedRef.current) {
+      pausedRef.current = false;
+      setIsPaused(false);
+      refreshRef.current();
+    }
+  }, []);
 
   const loadFeed = useCallback(async () => {
     try {
@@ -1198,9 +1219,24 @@ const ActivityFeed = () => {
       }
     };
 
+    refreshRef.current = refresh;
+    activeAtRef.current = Date.now();
+    pausedRef.current = false;
+    setIsPaused(false);
     refresh();
 
-    const intervalId = setInterval(refresh, POLL_INTERVAL_MS);
+    // The tick itself is kept, only the fetch is skipped: resuming then costs
+    // nothing to set up, and the timer is free next to a request.
+    const intervalId = setInterval(() => {
+      if (Date.now() - activeAtRef.current >= IDLE_PAUSE_MS) {
+        pausedRef.current = true;
+        setIsPaused(true);
+
+        return;
+      }
+
+      refresh();
+    }, POLL_INTERVAL_MS);
 
     return () => clearInterval(intervalId);
   }, [view, loadFeed, loadTasks, loadBuzz]);
@@ -3065,6 +3101,8 @@ const ActivityFeed = () => {
 
   return (
     <div
+      onClick={markActive}
+      onKeyDown={markActive}
       style={{
         display: 'flex',
         flexDirection: 'column',
@@ -3224,7 +3262,23 @@ const ActivityFeed = () => {
         </div>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', paddingBottom: '12px' }}>
+      <div
+        onScroll={markActive}
+        style={{ flex: 1, overflowY: 'auto', paddingBottom: '12px' }}
+      >
+        {isPaused && (
+          <div
+            style={{
+              padding: '8px 16px',
+              fontSize: '0.85rem',
+              color: palette.textLight,
+              borderBottom: `1px solid ${palette.border}`,
+            }}
+          >
+            {t('Updates are paused while the panel is idle. Click to resume.')}
+          </div>
+        )}
+
         {isLoading && (
           <div style={{ padding: '16px', fontSize: '0.92rem', color: palette.textLight }}>
             {t('Loading…')}
