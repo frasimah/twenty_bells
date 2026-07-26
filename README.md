@@ -26,7 +26,7 @@ The trade is latency: a new event surfaces within a minute rather than instantly
 
 ## Requirements
 
-- Twenty server **2.21.0 or later** (declared as `engines.twenty`). CI installs the app and runs the integration tests against both ends of that range on every push, so the floor is a tested promise rather than a guess.
+- Twenty server **2.20.0 or later** (declared as `engines.twenty`). CI installs the app and runs the integration tests against both ends of that range on every push, so the floor is a tested promise rather than a guess. 2.19 is genuinely out: it requires a custom object to spell out its own system fields, which the server has filled in itself since 2.20.
 - Node 24 and Yarn 4 for local development
 
 ## Install into your Twenty

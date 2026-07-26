@@ -22,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        twenty-version: ['2.21.0', 'latest']
+        twenty-version: ['2.20.0', 'latest']
     name: test (twenty ${{ matrix.twenty-version }})
     steps:
       - name: Checkout
