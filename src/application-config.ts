@@ -10,12 +10,13 @@ export default defineApplication({
   universalIdentifier: APPLICATION_UNIVERSAL_IDENTIFIER,
   displayName: APP_DISPLAY_NAME,
   description: APP_DESCRIPTION,
-  author: 'DCode',
+  author: 'kata',
   category: 'Productivity',
   // The pinned command button ignores its own `icon` (deprecated) and always
   // renders the application icon — so the bell has to live here.
   logo: 'public/logo.svg',
-  websiteUrl: 'https://github.com/frasimah/twenty_bells',
+  websiteUrl: 'https://kata.agency',
+  emailSupport: 'hello@kata.agency',
   issueReportUrl: 'https://github.com/frasimah/twenty_bells/issues',
   // `aboutDescription` is deliberately absent: without it the marketplace shows
   // the package README from npm, so there is one text to keep current instead

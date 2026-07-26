@@ -2,7 +2,7 @@
 
 An activity feed inside Twenty. A bell button in the top-right corner opens a side panel showing what happened in the CRM, what your team is talking about, and what is overdue on you personally.
 
-Русская версия: [README.ru.md](README.ru.md).
+Русская версия: [README.ru.md](https://github.com/frasimah/twenty_bells/blob/main/README.ru.md).
 
 ## What it does
 
@@ -107,4 +107,4 @@ The marketplace catalog syncs from npm hourly; `yarn twenty dev:catalog-sync` tr
 
 - [Twenty Apps documentation](https://docs.twenty.com/developers/extend/apps/getting-started/quick-start)
 - [twenty-sdk CLI reference](https://www.npmjs.com/package/twenty-sdk)
-- Changes are listed in [CHANGELOG.md](CHANGELOG.md).
+- Changes are listed in [CHANGELOG.md](https://github.com/frasimah/twenty_bells/blob/main/CHANGELOG.md).

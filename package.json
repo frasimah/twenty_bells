@@ -3,7 +3,11 @@
   "version": "1.0.0",
   "description": "The Bell — an activity feed for Twenty: what changed in the workspace, team notes with their comments, documents, and the tasks that are overdue.",
   "license": "MIT",
-  "author": "DCode",
+  "author": {
+    "name": "kata",
+    "email": "hello@kata.agency",
+    "url": "https://kata.agency"
+  },
   "homepage": "https://github.com/frasimah/twenty_bells#readme",
   "repository": {
     "type": "git",
