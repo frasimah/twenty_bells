@@ -83,8 +83,6 @@ const LINK_PAGE_SIZE = Math.min(PAGE_SIZE * 4, 200);
 const BULK_THRESHOLD = 5;
 const BULK_WINDOW_MS = 5 * 60 * 1000;
 
-const DEFAULT_SCOPE = readSetting('DEFAULT_SCOPE') === 'all' ? 'all' : 'mine';
-
 // The read-state object is written by this very panel, so its own events would
 // otherwise show up in the feed as noise about the feed.
 const HIDDEN_EVENT_PREFIX = 'feedReadState.';
@@ -723,7 +721,6 @@ const ActivityFeed = () => {
   const [myCompanyIds, setMyCompanyIds] = useState<string[]>([]);
   const [memberNames, setMemberNames] = useState<Record<string, string>>({});
   const [memberAvatars, setMemberAvatars] = useState<Record<string, string>>({});
-  const [scope, setScope] = useState<'mine' | 'all'>(DEFAULT_SCOPE);
   const [enforcement, setEnforcement] = useState<
     'server' | 'client' | 'unknown'
   >('unknown');
@@ -1335,12 +1332,14 @@ const ActivityFeed = () => {
   // filtering again would only hide records the viewer is entitled to.
   const visibleItems = useMemo(
     () =>
-      enforcement !== 'server' && scope === 'mine'
-        ? allItems.filter(isMine)
-        : allItems,
+      // The panel is personal, full stop. A toggle to "everything" made the
+      // counter meaningless — a number under a feed that showed a fraction of
+      // it — and nobody reads a workspace-wide firehose anyway. The variant
+      // with the switch is kept on the backup/scope-toggle branch.
+      enforcement === 'server' ? allItems : allItems.filter(isMine),
     // `isMine` is rebuilt every render; what it actually reads is listed here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [allItems, enforcement, scope, memberId, myCompanyIds],
+    [allItems, enforcement, memberId, myCompanyIds],
   );
 
   // Tasks view: what is hanging, not what changed. Done tasks are dropped —
@@ -1350,7 +1349,7 @@ const ActivityFeed = () => {
       return false;
     }
 
-    if (enforcement === 'server' || scope === 'all' || memberId === null) {
+    if (enforcement === 'server' || memberId === null) {
       return true;
     }
 
@@ -3141,22 +3140,7 @@ const ActivityFeed = () => {
             >
               {t('Access: server')}
             </span>
-          ) : (
-            <ToolbarButton
-              label={t("Only mine")}
-              isActive={scope === 'mine'}
-              activeColor={ACCENT_BLUE}
-              title={
-                scope === 'mine'
-                  ? t('Filter on: only what relates to you. Click to see everything.')
-                  : t('Filter off: everything the server returned. Click to keep only yours.')
-              }
-              onClick={() => setScope(scope === 'mine' ? 'all' : 'mine')}
-              background={palette.buttonBackground}
-              color={palette.textMid}
-            />
-          )}
-
+          ) : null}
         </div>
       </div>
 
@@ -3236,20 +3220,23 @@ const ActivityFeed = () => {
                     color={palette.textMid}
                   />
                 )}
-                {/* The numerator is what is on the screen, the denominator
-                    the week's updates — a fixed number that paging does not
-                    move. The personal filter can hold rows back, which is why
-                    the two rarely meet. */}
+                {/* Everything here is personal, so the count is personal
+                    too: the updates on your records this week. A workspace-wide
+                    denominator would be a number this feed never reaches. What
+                    was scanned to find them lives in the tooltip. */}
                 <span
                   title={t(
-                    'Updates in the last {days} days: {total}. The feed loads at most {limit}.',
-                    { days: FEED_WINDOW_DAYS, total: feedTotal, limit: FEED_LIMIT },
+                    'Scanned {loaded} of {total} workspace updates from the last {days} days',
+                    {
+                      loaded: loadedEvents.length,
+                      total: feedTotal,
+                      days: FEED_WINDOW_DAYS,
+                    },
                   )}
                   style={{ fontSize: '0.85rem', color: palette.textLight }}
                 >
-                  {t('{shown} of {total} updates this week', {
-                    shown: visibleEventCount,
-                    total: feedTotal,
+                  {t('{count} updates on your records this week', {
+                    count: visibleEventCount,
                   })}
                 </span>
               </div>

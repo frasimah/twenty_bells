@@ -52,15 +52,5 @@ export default defineApplication({
       type: FieldType.BOOLEAN,
       value: false,
     },
-    DEFAULT_SCOPE: {
-      universalIdentifier: 'a1dfadfa-cb68-4a10-b499-3321123152a1',
-      description: 'What to show when the panel opens',
-      type: FieldType.SELECT,
-      options: [
-        { label: 'Only what relates to me', value: 'mine' },
-        { label: 'Every record in the workspace', value: 'all' },
-      ],
-      value: 'mine',
-    },
   },
 });
