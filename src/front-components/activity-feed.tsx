@@ -212,8 +212,12 @@ type Page<K extends string> = {
   pageInfo?: { endCursor?: string; hasNextPage?: boolean };
 };
 
-const nextCursor = (page: Page<string>) =>
-  page.pageInfo?.hasNextPage === true ? (page.pageInfo.endCursor ?? null) : null;
+// The server's cursor is nothing but the sort key of the last row, base64'd —
+// verified byte-for-byte against `pageInfo.endCursor`. Building it from the
+// oldest row we already hold means paging never depends on a `pageInfo` that
+// may not survive a poll, and it repairs itself after any refresh.
+const cursorFor = (item: TimelineRecord) =>
+  btoa(JSON.stringify({ happensAt: item.happensAt, id: item.id }));
 
 const isVisibleEvent = (item: TimelineRecord) =>
   typeof item.name !== 'string' || !item.name.startsWith(HIDDEN_EVENT_PREFIX);
@@ -765,10 +769,7 @@ const ActivityFeed = () => {
   // Pages fetched behind the first one. Kept apart from `items` so the poll can
   // refresh the newest page without throwing away what the reader paged in.
   const [olderItems, setOlderItems] = useState<TimelineRecord[]>([]);
-  const [cursor, setCursor] = useState<{ value: string | null; extended: boolean }>({
-    value: null,
-    extended: false,
-  });
+  const [isFeedExhausted, setIsFeedExhausted] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   // Files are refreshed with the links rather than on every poll: a hundred
   // attachments at depth 1 is a quarter-megabyte of JSON, and a document that
@@ -794,11 +795,6 @@ const ActivityFeed = () => {
         (timeline.data?.timelineActivities ?? []).filter(isVisibleEvent),
       );
       setFeedTotal(timeline.totalCount ?? 0);
-      // Only the first page is refreshed by the poll, so the cursor must not
-      // rewind once the reader has paged further back.
-      setCursor((prev) =>
-        prev.extended ? prev : { value: nextCursor(timeline), extended: false },
-      );
       setError(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
@@ -810,7 +806,9 @@ const ActivityFeed = () => {
   // One page further back, never past the cap. Files do not page: they live in
   // their own strip with its own expander.
   const loadMore = async () => {
-    if (cursor.value === null || changes.length >= FEED_LIMIT) {
+    const oldest = loadedEvents[loadedEvents.length - 1];
+
+    if (oldest === undefined || loadedEvents.length >= FEED_LIMIT) {
       return;
     }
 
@@ -827,16 +825,15 @@ const ActivityFeed = () => {
             limit: PAGE_SIZE,
             depth: 1,
             order_by: 'happensAt[DescNullsLast]',
-            starting_after: cursor.value,
+            starting_after: cursorFor(oldest),
           },
         },
       );
 
-      setOlderItems((prev) => [
-        ...prev,
-        ...(page.data?.timelineActivities ?? []).filter(isVisibleEvent),
-      ]);
-      setCursor({ value: nextCursor(page), extended: true });
+      const fetched = (page.data?.timelineActivities ?? []).filter(isVisibleEvent);
+
+      setIsFeedExhausted(fetched.length === 0);
+      setOlderItems((prev) => [...prev, ...fetched]);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
@@ -1460,6 +1457,14 @@ const ActivityFeed = () => {
   // Grouping walks the whole feed twice and sorts the result. It depends on
   // the events alone, so it is rebuilt when they change — not when a card
   // lights up under the cursor.
+  // Every change event fetched, before the personal filter. This is what the
+  // counter compares against the server's total and what paging walks back
+  // from — the filtered list would page into a different place.
+  const loadedEvents = useMemo(
+    () => allItems.filter((item) => item.name !== ATTACHMENT_EVENT),
+    [allItems],
+  );
+
   // Files ride at the top of the feed in their own strip, so they are taken
   // out of the change stream below — otherwise every document would show up
   // twice, once in the strip and once as a row.
@@ -3392,7 +3397,9 @@ const ActivityFeed = () => {
                   padding: '14px 16px 4px',
                 }}
               >
-                {cursor.value !== null && changes.length < FEED_LIMIT && (
+                {!isFeedExhausted &&
+                  loadedEvents.length < FEED_LIMIT &&
+                  loadedEvents.length < feedTotal && (
                   <ToolbarButton
                     label={isLoadingMore ? t('Loading…') : t('Show more')}
                     title={t('Load the previous page of events')}
@@ -3403,7 +3410,7 @@ const ActivityFeed = () => {
                 )}
                 <span style={{ fontSize: '0.85rem', color: palette.textLight }}>
                   {t('{loaded} of {total} events', {
-                    loaded: changes.length,
+                    loaded: loadedEvents.length,
                     total: feedTotal,
                   })}
                 </span>
