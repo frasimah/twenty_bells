@@ -2171,6 +2171,14 @@ const ActivityFeed = () => {
             >
               {recordLinks.map((link) => {
                 const linkColor = getObjectColor(link.objectNameSingular);
+                // A record can have no name — an untitled note, a company saved
+                // blank. The chip still opens it, so it keeps its place and
+                // borrows the object's own name instead of rendering as an
+                // empty box with a question mark in it.
+                const linkLabel =
+                  link.label !== ''
+                    ? link.label
+                    : labelForObject(link.objectNameSingular);
 
                 return (
                   <span
@@ -2179,7 +2187,7 @@ const ActivityFeed = () => {
                       event.stopPropagation();
                       openRecord(link);
                     }}
-                    title={t('Open: {label}', { label: link.label })}
+                    title={t('Open: {label}', { label: linkLabel })}
                     style={{
                       display: 'inline-flex',
                       alignItems: 'center',
@@ -2194,7 +2202,7 @@ const ActivityFeed = () => {
                   >
                     <InlineAvatar
                       size={14}
-                      label={link.label}
+                      label={linkLabel}
                       color={`${linkColor}2E`}
                       textColor={linkColor}
                       avatarUrl={link.avatarUrl}
@@ -2207,7 +2215,7 @@ const ActivityFeed = () => {
                         textOverflow: 'ellipsis',
                       }}
                     >
-                      {link.label}
+                      {linkLabel}
                     </span>
                   </span>
                 );
