@@ -2212,43 +2212,28 @@ const ActivityFeed = () => {
         onMouseEnter={() => setHoveredCard(group.key)}
         onMouseLeave={() => setHoveredCard(null)}
         style={{
-          margin: '16px 12px',
-          border: `1px solid ${
-            isRowHovered ? palette.cardHoverBorder : palette.border
-          }`,
-          borderRadius: '10px',
-          // Unread keeps the tint; a read card sits on the panel's own surface.
+          paddingBottom: '12px',
+          borderBottom: SHOW_TIMELINE_RAIL
+            ? 'none'
+            : `1px solid ${palette.border}`,
           background: unread
             ? isRowHovered
               ? palette.unreadHover
               : palette.unread
-            : colorScheme === 'dark'
-              ? '#1B1B1B'
-              : '#FFFFFF',
-          overflow: 'hidden',
-          transition: 'background 140ms ease, border-color 140ms ease',
+            : isRowHovered
+              ? palette.hover
+              : 'transparent',
+          transition: 'background 140ms ease',
         }}
       >
-        <div style={{ paddingBottom: '12px' }}>
-          {renderHead(head, unread, touchedAt)}
-        </div>
+        <div>{renderHead(head, unread, touchedAt)}</div>
 
         {/* Everything filed under the record sits on the same tinted strip a
             task card gives its comments: what happened above, what is attached
             to it below. Two surfaces of one anatomy, so the feed and the other
             tabs read as the same object. */}
         {(attachments.length > 0 || rest.length > 0) && (
-          <div
-            style={{
-              borderTop: `1px solid ${palette.border}`,
-              background: unread
-                ? 'transparent'
-                : colorScheme === 'dark'
-                  ? '#191919'
-                  : '#FAFAFA',
-              padding: '8px 0 10px',
-            }}
-          >
+          <div style={{ padding: '0 0 2px' }}>
             {attachments.length > 0 && (
           <div
             style={{
@@ -2921,21 +2906,18 @@ const ActivityFeed = () => {
         onMouseEnter={() => setHoveredCard(entry.key)}
         onMouseLeave={() => setHoveredCard(null)}
         style={{
-          margin: '10px 12px',
           paddingBottom: '12px',
-          border: `1px solid ${
-            isRowHovered ? palette.cardHoverBorder : palette.border
-          }`,
-          borderRadius: '10px',
+          borderBottom: SHOW_TIMELINE_RAIL
+            ? 'none'
+            : `1px solid ${palette.border}`,
           background: unread
             ? isRowHovered
               ? palette.unreadHover
               : palette.unread
-            : colorScheme === 'dark'
-              ? '#1B1B1B'
-              : '#FFFFFF',
-          overflow: 'hidden',
-          transition: 'background 140ms ease, border-color 140ms ease',
+            : isRowHovered
+              ? palette.hover
+              : 'transparent',
+          transition: 'background 140ms ease',
         }}
       >
         <div style={{ display: 'flex', gap: '11px', padding: '10px 16px 0' }}>
