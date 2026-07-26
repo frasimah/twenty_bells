@@ -2417,7 +2417,11 @@ const ActivityFeed = () => {
             >
               {isExpanded
                 ? t('Collapse')
-                : t('{count} more events on this record', { count: rest.length })}
+                : rest.length === 1
+                  ? t('1 more event on this record')
+                  : t('{count} more events on this record', {
+                      count: rest.length,
+                    })}
             </button>
           </div>
 
@@ -2670,13 +2674,21 @@ const ActivityFeed = () => {
     onOpen: () => void,
     openLabel: string,
   ) => {
+    // The event's own column first: it survives a depth-0 fetch, where the
+    // `workspaceMember` relation does not. `updatedBy` is the last resort — it
+    // names whatever actor last wrote the row, which for anything touched by a
+    // script or an integration is the token, not a person.
+    const commenterId =
+      String(edit.workspaceMemberId ?? '') ||
+      readMemberId(edit.workspaceMember) ||
+      readMemberId(edit.updatedBy) ||
+      '';
     const commenter =
-      readDisplayName(edit.workspaceMember) || readDisplayName(edit.updatedBy);
+      memberNames[commenterId] ||
+      readDisplayName(edit.workspaceMember) ||
+      readDisplayName(edit.updatedBy);
     const editId = String(edit.id);
-    const avatarUrl =
-      memberAvatars[
-        readMemberId(edit.workspaceMember) ?? readMemberId(edit.updatedBy) ?? ''
-      ];
+    const avatarUrl = memberAvatars[commenterId];
 
     return (
       <div
@@ -2702,7 +2714,9 @@ const ActivityFeed = () => {
       >
         <InlineAvatar
           size={22}
-          label={commenter !== '' ? commenter : '?'}
+          // An unresolved author is a person we cannot name, not a puzzle: a
+          // bare "?" in a chip reads as a rendering fault.
+          label={commenter !== '' ? commenter : t('Someone')}
           color={palette.mutedFill}
           textColor={palette.textMid}
           avatarUrl={avatarUrl}
@@ -2976,7 +2990,9 @@ const ActivityFeed = () => {
         textDecoration: 'underline',
       }}
     >
-      {t('{hidden} more comments', { hidden })}
+      {hidden === 1
+        ? t('1 more comment')
+        : t('{hidden} more comments', { hidden })}
     </button>
   );
 
