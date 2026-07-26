@@ -1,17 +1,23 @@
 name: CD
 
+# Deliberately not on push. The app is developed against a Twenty instance on
+# the developer's own machine, and a GitHub runner cannot reach it — the
+# scaffold's `http://localhost:2020` resolves to the runner itself, so every
+# push failed with "Cannot connect to Twenty server. Is it running?".
+#
+# Local deploys are `yarn twenty apply`. This workflow stays for the day the app
+# targets a server reachable from the internet: run it by hand, pass that
+# server's URL, and store its API key as the TWENTY_DEPLOY_API_KEY secret.
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      api-url:
+        description: 'Twenty server URL, reachable from GitHub runners'
+        required: true
+        type: string
 
 permissions:
   contents: read
-
-env:
-  TWENTY_DEPLOY_URL: http://localhost:2020
 
 concurrency:
   group: cd-${{ github.ref }}
@@ -19,24 +25,30 @@ concurrency:
 
 jobs:
   deploy-and-install:
-    if: >-
-      github.event_name == 'push' ||
-      (github.event_name == 'pull_request' && github.event.label.name == 'deploy')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      # Without this the deploy step fails deep inside the twentyhq action with
+      # an authentication error that says nothing about the missing secret.
+      - name: Check the API key is configured
+        env:
+          API_KEY: ${{ secrets.TWENTY_DEPLOY_API_KEY }}
+        run: |
+          if [ -z "$API_KEY" ]; then
+            echo "TWENTY_DEPLOY_API_KEY is not set in the repository secrets."
+            exit 1
+          fi
 
       - name: Deploy
         uses: twentyhq/twenty/.github/actions/deploy-twenty-app@main
         with:
-          api-url: ${{ env.TWENTY_DEPLOY_URL }}
+          api-url: ${{ inputs.api-url }}
           api-key: ${{ secrets.TWENTY_DEPLOY_API_KEY }}
 
       - name: Install
         uses: twentyhq/twenty/.github/actions/install-twenty-app@main
         with:
-          api-url: ${{ env.TWENTY_DEPLOY_URL }}
+          api-url: ${{ inputs.api-url }}
           api-key: ${{ secrets.TWENTY_DEPLOY_API_KEY }}
