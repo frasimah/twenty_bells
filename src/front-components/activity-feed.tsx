@@ -27,13 +27,22 @@ import { ACTIVITY_FEED_FRONT_COMPONENT_UNIVERSAL_IDENTIFIER } from 'src/constant
 // Thirty seconds, not fifteen. The panel stays open all day, and each cycle
 // parses a few hundred kilobytes of JSON into objects the sandbox then has to
 // collect — that churn is what made Safari reclaim the tab.
-const POLL_INTERVAL_MS = 30 * 1000;
+const POLL_INTERVAL_MS = 60 * 1000;
 const PAGE_SIZE = 50;
 // A panel left open on a second screen should not poll all day. After this long
 // without a touch the loop goes quiet, and the next click inside the panel
 // wakes it and refreshes at once — so idle time costs a timer tick, not a
 // request.
-const IDLE_PAUSE_MS = 15 * 60 * 1000;
+const IDLE_PAUSE_MS = 5 * 60 * 1000;
+// Every tick asks one cheap question first — "has anything happened at all?" —
+// for about 2 KB, and only pays for the tab's real payload when the answer is
+// yes. A quiet workspace is the common case, and the Buzz tab alone costs
+// 424 KB a poll without this.
+const PROBE_LIMIT = 1;
+// Some of what the panel shows changes with the clock rather than with the
+// data — a task falls overdue, a timestamp turns into "2h". So the probe can
+// suppress a fetch for this long at most, and staleness stays bounded.
+const FULL_REFRESH_EVERY_MS = 10 * 60 * 1000;
 // What the feed holds, deliberately fixed. Paging further back turned the
 // panel into an archive nobody scrolled: a hundred latest events is what a
 // person actually catches up on, and one request keeps them exact — no gaps
@@ -750,6 +759,8 @@ const ActivityFeed = () => {
   const activeAtRef = useRef(Date.now());
   const pausedRef = useRef(false);
   const refreshRef = useRef<() => void>(() => {});
+  const probeRef = useRef<{ topId: string; total: number } | null>(null);
+  const lastFullLoadAtRef = useRef(0);
   const [isPaused, setIsPaused] = useState(false);
 
   const markActive = useCallback(() => {
@@ -759,6 +770,41 @@ const ActivityFeed = () => {
       pausedRef.current = false;
       setIsPaused(false);
       refreshRef.current();
+    }
+  }, []);
+
+  // One request, one row, no relations: the id of the newest event plus the
+  // count of the window. Both unchanged means nothing has happened since the
+  // last look — the timeline is append-only, so an edit anywhere in the
+  // workspace shows up here as a new top row.
+  const probeForNews = useCallback(async () => {
+    try {
+      const probe = await new RestApiClient().get<Page<'timelineActivities'>>(
+        '/rest/timelineActivities',
+        {
+          query: {
+            filter: feedFilter(),
+            limit: PROBE_LIMIT,
+            depth: 0,
+            order_by: 'happensAt[DescNullsLast]',
+          },
+        },
+      );
+
+      const total = probe.totalCount ?? 0;
+      const topId = String(probe.data?.timelineActivities?.[0]?.id ?? '');
+
+      // The denominator under the feed rides along for free.
+      setFeedTotal(total);
+
+      const seen = probeRef.current;
+
+      probeRef.current = { topId, total };
+
+      return seen === null || seen.topId !== topId || seen.total !== total;
+    } catch {
+      // A failed probe must not swallow the poll: fall through and fetch.
+      return true;
     }
   }, []);
 
@@ -1209,7 +1255,9 @@ const ActivityFeed = () => {
   // 15 seconds meant 1.7 MB of JSON per cycle — most of it for screens nobody
   // was looking at, all of it parsed into objects the sandbox then collected.
   useEffect(() => {
-    const refresh = () => {
+    const fetchTab = () => {
+      lastFullLoadAtRef.current = Date.now();
+
       if (view === 'tasks') {
         void loadTasks();
       } else if (view === 'buzz') {
@@ -1219,13 +1267,29 @@ const ActivityFeed = () => {
       }
     };
 
+    // Opening the panel or switching tabs is the user asking for the data —
+    // that always pays in full. Only the timer haggles.
+    const refresh = () => {
+      void (async () => {
+        const isStale =
+          Date.now() - lastFullLoadAtRef.current >= FULL_REFRESH_EVERY_MS;
+
+        if ((await probeForNews()) || isStale) {
+          fetchTab();
+        }
+      })();
+    };
+
     refreshRef.current = refresh;
     activeAtRef.current = Date.now();
     pausedRef.current = false;
     setIsPaused(false);
-    refresh();
+    fetchTab();
+    // Seed the watermark, or the very first tick would see "no previous probe"
+    // and pay for a page it already has.
+    void probeForNews();
 
-    // The tick itself is kept, only the fetch is skipped: resuming then costs
+    // The tick itself is kept, only the work is skipped: resuming then costs
     // nothing to set up, and the timer is free next to a request.
     const intervalId = setInterval(() => {
       if (Date.now() - activeAtRef.current >= IDLE_PAUSE_MS) {
@@ -1239,7 +1303,7 @@ const ActivityFeed = () => {
     }, POLL_INTERVAL_MS);
 
     return () => clearInterval(intervalId);
-  }, [view, loadFeed, loadTasks, loadBuzz]);
+  }, [view, loadFeed, loadTasks, loadBuzz, probeForNews]);
 
   const markAllAsRead = async () => {
     if (userId === null) {
