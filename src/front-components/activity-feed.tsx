@@ -2267,6 +2267,12 @@ const ActivityFeed = () => {
                   ? file.linkedRecordCachedName
                   : t('Document');
 
+              // The SDK has no file viewer — its only modal is a text
+              // confirmation, and no side-panel page renders a document. The
+              // attachment is a record of its own, though, so the name opens
+              // that record, where Twenty offers the file itself.
+              const attachmentId = String(file.id).replace(/^attachment-/, '');
+
               return (
                 <div
                   key={String(file.id)}
@@ -2280,6 +2286,17 @@ const ActivityFeed = () => {
                 >
                   {renderFileMark(fileName)}
                   <span
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openRecord({
+                        objectNameSingular: 'attachment',
+                        recordId: attachmentId,
+                        label: fileName,
+                      });
+                    }}
+                    onMouseEnter={() => setHoveredId(`file-${attachmentId}`)}
+                    onMouseLeave={() => setHoveredId(null)}
+                    title={t('Open: {label}', { label: fileName })}
                     style={{
                       fontSize: '0.92rem',
                       fontWeight: 400,
@@ -2287,6 +2304,11 @@ const ActivityFeed = () => {
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
                       whiteSpace: 'nowrap',
+                      cursor: 'pointer',
+                      textDecoration:
+                        hoveredId === `file-${attachmentId}`
+                          ? 'underline'
+                          : 'none',
                     }}
                   >
                     {fileName}
