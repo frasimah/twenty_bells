@@ -182,8 +182,25 @@ type Page<K extends string> = {
 const cursorFor = (item: TimelineRecord) =>
   btoa(JSON.stringify({ happensAt: item.happensAt, id: item.id }));
 
-const isVisibleEvent = (item: TimelineRecord) =>
-  typeof item.name !== 'string' || !item.name.startsWith(HIDDEN_EVENT_PREFIX);
+const isVisibleEvent = (item: TimelineRecord) => {
+  if (typeof item.name !== 'string') {
+    return true;
+  }
+
+  if (item.name.startsWith(HIDDEN_EVENT_PREFIX)) {
+    return false;
+  }
+
+  // An update whose every changed field is bookkeeping — or reports the same
+  // value on both sides — leaves a card with a heading, a chip and nothing
+  // underneath. Something happened to the record, but there is nothing in it
+  // for a reader. Creations carry no diff at all by design and stay.
+  if (item.name.endsWith('.updated')) {
+    return extractDiff(item.properties).length > 0;
+  }
+
+  return true;
+};
 
 type FieldMeta = {
   label: string;
