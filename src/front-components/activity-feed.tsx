@@ -479,6 +479,15 @@ const extractDiff = (properties: unknown) => {
       };
 
       return { field, beforeRaw: before, afterRaw: after };
+    })
+    // A field the server reports as changed while both sides are equal has
+    // nothing to show, and "title: Report → Report" reads like a bug.
+    .filter(({ beforeRaw, afterRaw }) => {
+      try {
+        return JSON.stringify(beforeRaw) !== JSON.stringify(afterRaw);
+      } catch {
+        return true;
+      }
     });
 };
 
