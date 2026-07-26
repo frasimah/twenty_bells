@@ -731,6 +731,9 @@ const ActivityFeed = () => {
   >('unknown');
   const [view, setView] = useState<'feed' | 'tasks' | 'buzz'>('feed');
   const [tasks, setTasks] = useState<TimelineRecord[]>([]);
+  // Every task assigned to the reader that is not done — the whole workspace,
+  // not the loaded page. Null until the viewer is known.
+  const [assignedOpenCount, setAssignedOpenCount] = useState<number | null>(null);
   const [notes, setNotes] = useState<TimelineRecord[]>([]);
   const [noteEdits, setNoteEdits] = useState<TimelineRecord[]>([]);
   const [noteTargets, setNoteTargets] = useState<TimelineRecord[]>([]);
@@ -1156,7 +1159,7 @@ const ActivityFeed = () => {
     try {
       const client = new RestApiClient();
 
-      const [response, editsResponse] = await Promise.all([
+      const [response, editsResponse, assignedResponse] = await Promise.all([
         // depth 0: the assignee is needed as a name, and `assigneeId` plus the
         // member map already give that — the nested record was four fifths of
         // this response.
@@ -1180,14 +1183,27 @@ const ActivityFeed = () => {
             },
           },
         ),
+        // The badge is a count, not a list: asking the server for one row and
+        // reading `totalCount` costs under two kilobytes and is exact, where
+        // counting the loaded page would top out at TAB_PAGE_SIZE.
+        memberId === null
+          ? Promise.resolve(null)
+          : client.get<Page<'tasks'>>('/rest/tasks', {
+              query: {
+                filter: `assigneeId[eq]:${memberId},status[neq]:DONE`,
+                limit: 1,
+                depth: 0,
+              },
+            }),
       ]);
 
       setTasks(response.data?.tasks ?? []);
       setTaskEdits((editsResponse.data?.timelineActivities ?? []).reverse());
+      setAssignedOpenCount(assignedResponse?.totalCount ?? null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, []);
+  }, [memberId]);
 
   // Buzz: notes as posts, and every later edit of a note body as a comment.
   // Twenty has no comment object — amending the note text is the mechanism —
@@ -3266,6 +3282,30 @@ const ActivityFeed = () => {
               {overdueTasks.length}
             </span>
           )}
+          {view === 'tasks' &&
+            assignedOpenCount !== null &&
+            assignedOpenCount > 0 && (
+              <span
+                title={t('Assigned to you and not done: {count}', {
+                  count: assignedOpenCount,
+                })}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  minWidth: '19px',
+                  height: '19px',
+                  padding: '0 5px',
+                  borderRadius: '10px',
+                  border: `1px solid ${ACCENT_BLUE}`,
+                  fontSize: '0.85rem',
+                  fontWeight: 400,
+                  color: ACCENT_BLUE,
+                }}
+              >
+                {assignedOpenCount}
+              </span>
+            )}
           {view === 'feed' && unreadCount > 0 && (
             <span
               style={{
