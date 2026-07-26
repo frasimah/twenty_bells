@@ -500,7 +500,15 @@ const extractDiff = (properties: unknown) => {
     })
     // A field the server reports as changed while both sides are equal has
     // nothing to show, and "title: Report → Report" reads like a bug.
+    //
+    // Rich text needs comparing by its text: a body re-saved unchanged still
+    // differs as JSON, because every block is reissued with a fresh id, and
+    // that produced rows reading "Body: no change".
     .filter(({ beforeRaw, afterRaw }) => {
+      if (isRichTextValue(beforeRaw) && isRichTextValue(afterRaw)) {
+        return readMarkdown(beforeRaw) !== readMarkdown(afterRaw);
+      }
+
       try {
         return JSON.stringify(beforeRaw) !== JSON.stringify(afterRaw);
       } catch {
