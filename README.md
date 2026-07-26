@@ -78,7 +78,7 @@ Limits of the source, not of the app:
 
 - **deletions** — Twenty writes no event for them at all;
 - **emails and meetings** — `message` and `calendarEvent` have no relation to `timelineActivity`;
-- **history of deleted records** — the event survives but its link breaks; those rows are marked "record deleted".
+- **history of deleted records** — the event survives, but Twenty nulls its link, so there is no name left to show and nothing to open. Those rows are dropped rather than shown as tombstones.
 
 ## Development
 

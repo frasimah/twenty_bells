@@ -293,6 +293,13 @@ const resolveTarget = (item: TimelineRecord): ResolvedTarget | null => {
   };
 };
 
+// Twenty nulls the foreign key when a record is destroyed, so an event about
+// something deleted points at nothing: no name to show, nothing to open. The
+// row it produced said "record deleted, cannot open" and struck its own title
+// through — a tombstone, not news.
+const pointsAtALivingRecord = (item: TimelineRecord) =>
+  resolveTarget(item) !== null;
+
 const ATTACHMENT_EVENT = 'linked-attachment.created';
 
 // Attaching a file emits no timeline event at all — verified against a live
@@ -1496,7 +1503,9 @@ const ActivityFeed = () => {
   // response further, so running the personal filter on top of it is always
   // safe, while trusting it was not.
   const visibleItems = useMemo(
-    () => allItems.filter(isMine),
+    // Both filters belong here rather than at fetch time: attachments are
+    // folded in as synthetic events and never pass through the timeline query.
+    () => allItems.filter(pointsAtALivingRecord).filter(isMine),
     // `isMine` is rebuilt every render; what it actually reads is listed here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [allItems, memberId, myCompanyIds],
