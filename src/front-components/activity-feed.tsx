@@ -3166,9 +3166,12 @@ const ActivityFeed = () => {
                   />
                 )}
                 <span style={{ fontSize: '0.85rem', color: palette.textLight }}>
+                  {/* Against what is reachable, not against the whole history:
+                      the feed stops at FEED_LIMIT, and the server's total also
+                      counts events the panel never shows. */}
                   {t('{loaded} of {total} events', {
                     loaded: loadedEvents.length,
-                    total: feedTotal,
+                    total: Math.min(FEED_LIMIT, feedTotal),
                   })}
                 </span>
               </div>
