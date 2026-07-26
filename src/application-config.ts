@@ -20,8 +20,16 @@ export default defineApplication({
   issueReportUrl: 'https://github.com/frasimah/twenty_bells/issues',
   // `aboutDescription` is deliberately absent: without it the marketplace shows
   // the package README from npm, so there is one text to keep current instead
-  // of two. `galleryImages` needs real screenshots of the panel — add them to
-  // public/ before the first marketplace release.
+  // of two.
+  //
+  // The panel is a narrow side panel and no crop of it is 8:5, so each shot
+  // sits whole on a canvas of that ratio — nothing cut off, and no text baked
+  // in, since the listing is read in more than one language.
+  galleryImages: [
+    'public/gallery-1-feed.png',
+    'public/gallery-2-tasks.png',
+    'public/gallery-3-buzz.png',
+  ],
   //
   // No `applicationVariables` on purpose. They would render a Settings tab an
   // admin can edit, and nothing they typed would reach the panel: the host
