@@ -738,6 +738,13 @@ const ActivityFeed = () => {
   // attachments at depth 1 is a quarter-megabyte of JSON, and a document that
   // appears half a minute later is nobody's emergency.
   const [documentItems, setDocumentItems] = useState<TimelineRecord[]>([]);
+  // A file filed under a contact says nothing about the business behind it, so
+  // the card borrows context: the contact's company, and that company's live
+  // deal. Kept as flat maps because that is all the chips need.
+  const [companyNames, setCompanyNames] = useState<Record<string, string>>({});
+  const [companyDeals, setCompanyDeals] = useState<
+    Record<string, { id: string; name: string }>
+  >({});
 
   const loadFeed = useCallback(async () => {
     try {
@@ -983,6 +990,74 @@ const ActivityFeed = () => {
       setNoteTargets(noteResponse.data?.noteTargets ?? []);
     } catch {
       // Missing links only cost the chips, so a failure here stays silent.
+    }
+  }, []);
+
+  // Two lookups by id, the same shape as the links: whatever is on screen, and
+  // nothing more. A closed deal is skipped — the point is what is live now.
+  const loadContext = useCallback(async (companyIds: string[]) => {
+    if (companyIds.length === 0) {
+      setCompanyNames({});
+      setCompanyDeals({});
+
+      return;
+    }
+
+    try {
+      const client = new RestApiClient();
+      const filter = `id[in]:[${companyIds.join(',')}]`;
+
+      const [companies, deals] = await Promise.all([
+        client.get<{ data?: { companies?: TimelineRecord[] } }>(
+          '/rest/companies',
+          { query: { filter, limit: LINK_PAGE_SIZE, depth: 0 } },
+        ),
+        client.get<{ data?: { opportunities?: TimelineRecord[] } }>(
+          '/rest/opportunities',
+          {
+            query: {
+              filter: `companyId[in]:[${companyIds.join(',')}]`,
+              limit: LINK_PAGE_SIZE,
+              depth: 0,
+              order_by: 'createdAt[DescNullsLast]',
+            },
+          },
+        ),
+      ]);
+
+      setCompanyNames(
+        Object.fromEntries(
+          (companies.data?.companies ?? []).map((company) => [
+            String(company.id),
+            typeof company.name === 'string' ? company.name : '',
+          ]),
+        ),
+      );
+
+      const live: Record<string, { id: string; name: string }> = {};
+
+      for (const deal of deals.data?.opportunities ?? []) {
+        const companyId = String(deal.companyId ?? '');
+        const stage = String(deal.stage ?? '');
+
+        if (
+          companyId === '' ||
+          live[companyId] !== undefined ||
+          stage === 'WON' ||
+          stage === 'LOST'
+        ) {
+          continue;
+        }
+
+        live[companyId] = {
+          id: String(deal.id),
+          name: typeof deal.name === 'string' ? deal.name : '',
+        };
+      }
+
+      setCompanyDeals(live);
+    } catch {
+      // No context is a missing chip, never a broken card.
     }
   }, []);
 
@@ -1382,6 +1457,35 @@ const ActivityFeed = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [linkSignature]);
 
+  // Companies worth resolving: the ones a card points at directly, and the ones
+  // behind the contacts it points at.
+  const contextCompanyIds = useMemo(() => {
+    const ids = new Set<string>();
+
+    for (const item of allItems) {
+      const direct = item.targetCompanyId;
+      const viaPerson = (item.targetPerson as { companyId?: unknown } | null)
+        ?.companyId;
+
+      if (typeof direct === 'string' && direct !== '') {
+        ids.add(direct);
+      }
+
+      if (typeof viaPerson === 'string' && viaPerson !== '') {
+        ids.add(viaPerson);
+      }
+    }
+
+    return [...ids].sort();
+  }, [allItems]);
+
+  const contextSignature = contextCompanyIds.join(',');
+
+  useEffect(() => {
+    void loadContext(contextCompanyIds);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contextSignature]);
+
   // Files are grouped with everything else, so a record's card carries both
   // what changed on it and what was filed under it. A record with only files
   // still forms a card of its own.
@@ -1635,6 +1739,45 @@ const ActivityFeed = () => {
   // A deal matters more than the contact it goes through, so it leads.
   const LINK_RANK: Record<string, number> = { opportunity: 0, company: 1 };
 
+  // Context for a record that carries no link rows of its own: a contact lends
+  // its company, a company lends the deal that is still open on it.
+  const contextFor = (item: TimelineRecord): ResolvedTarget[] => {
+    const viaPerson = (item.targetPerson as { companyId?: unknown } | null)
+      ?.companyId;
+    const companyId =
+      typeof item.targetCompanyId === 'string' && item.targetCompanyId !== ''
+        ? item.targetCompanyId
+        : typeof viaPerson === 'string'
+          ? viaPerson
+          : '';
+
+    if (companyId === '') {
+      return [];
+    }
+
+    const chips: ResolvedTarget[] = [];
+    const deal = companyDeals[companyId];
+
+    if (deal !== undefined) {
+      chips.push({
+        objectNameSingular: 'opportunity',
+        recordId: deal.id,
+        label: deal.name,
+      });
+    }
+
+    // The company itself is redundant on a card that already leads with it.
+    if (item.targetCompanyId !== companyId && companyNames[companyId] !== undefined) {
+      chips.push({
+        objectNameSingular: 'company',
+        recordId: companyId,
+        label: companyNames[companyId],
+      });
+    }
+
+    return chips;
+  };
+
   const relatedRecords = (objectNameSingular: string, recordId: string) => {
     const rows =
       objectNameSingular === 'task'
@@ -1659,9 +1802,14 @@ const ActivityFeed = () => {
     const { target, author, objectLabel, actionLabel, objectNameSingular } =
       described;
     const isBroken = target === null;
-    const recordLinks = isBroken
+    // Own links first — a task really is filed under that deal. Borrowed
+    // context fills the gap for records that have none: a contact's company,
+    // that company's open deal.
+    const ownLinks = isBroken
       ? []
       : relatedRecords(objectNameSingular, String(target.recordId));
+    const recordLinks =
+      ownLinks.length > 0 ? ownLinks : contextFor(item).slice(0, 2);
     const isActive = unread && !isBroken;
     const classColor = getObjectColor(objectNameSingular);
     const dotColor = isActive ? classColor : palette.rail;
