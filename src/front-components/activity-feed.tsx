@@ -1078,6 +1078,10 @@ const ActivityFeed = () => {
                 query: {
                   filter: `noteId[in]:[${noteIds.join(',')}]`,
                   limit: LINK_PAGE_SIZE,
+                  // The chip is named from the linked record, which only comes
+                  // with the relation expanded — same as taskTargets above.
+                  // Without it every note chip read "Opportunity", "Company".
+                  depth: 1,
                 },
               },
             ),
