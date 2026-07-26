@@ -45,8 +45,10 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Update npm
-        # Trusted publishing requires npm 11.5.1 or later.
-        run: npm install -g npm@latest
+        # Trusted publishing requires npm 11.5.1 or later — that floor, not
+        # `latest`. npm 12 wants a newer Node than `.nvmrc` pins, so asking for
+        # the newest one fails on the version this project builds with.
+        run: npm install -g 'npm@^11.5.1'
 
       - name: Install dependencies
         run: yarn install --immutable
