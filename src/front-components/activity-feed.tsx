@@ -592,6 +592,10 @@ const getPalette = (colorScheme: 'light' | 'dark') =>
         // A card under the cursor is marked by its outline alone — the fill
         // stays flat so the feed does not flicker as the pointer crosses it.
         cardHoverBorder: 'rgba(149, 224, 251, 0.24)',
+        // twenty-ui `sky`, the softest blue in the palette: enough to mark a
+        // row as unread, not enough to shout over the text.
+        unread: 'rgba(149, 224, 251, 0.09)',
+        unreadHover: 'rgba(149, 224, 251, 0.16)',
         mutedFill: '#3A3A3A',
         mutedGlyph: '#8F8F8F',
       }
@@ -605,6 +609,8 @@ const getPalette = (colorScheme: 'light' | 'dark') =>
         hover: '#0000000A',
         buttonBackground: 'rgba(0, 0, 0, 0.035)',
         cardHoverBorder: 'rgba(70, 98, 213, 0.26)',
+        unread: 'rgba(149, 224, 251, 0.16)',
+        unreadHover: 'rgba(149, 224, 251, 0.28)',
         mutedFill: '#F0F0F0',
         mutedGlyph: '#999999',
       };
@@ -1389,13 +1395,28 @@ const ActivityFeed = () => {
           ? comments[0].parsed.before
           : readMarkdown(note.bodyV2);
 
-      return { note, comments, originalBody };
+      // A post is dated by the last thing that happened to it, not by the day
+      // it was written: a note from Monday with an answer an hour ago belongs
+      // at the top, showing "1h". Comments arrive oldest-first, so the last
+      // one is the newest.
+      const lastComment = comments[comments.length - 1]?.edit.happensAt;
+      const touchedAt = [note.createdAt, note.updatedAt, lastComment]
+        .filter((value): value is string => typeof value === 'string')
+        .reduce((latest, value) =>
+          new Date(value).getTime() > new Date(latest).getTime() ? value : latest,
+        );
+
+      return { note, comments, originalBody, touchedAt };
     })
     .filter(
       (post) =>
         post.comments.length > 0 ||
         post.originalBody !== '' ||
         typeof post.note.title === 'string',
+    )
+    .sort(
+      (a, b) =>
+        new Date(b.touchedAt).getTime() - new Date(a.touchedAt).getTime(),
     );
 
   // Several events on the same record collapse into one row: the newest is
@@ -1853,7 +1874,24 @@ const ActivityFeed = () => {
       .slice(0, 2);
   };
 
-  const renderHead = (item: TimelineRecord, unread: boolean) => {
+  // The newest thing that happened to a record — what dates its card and what
+  // orders the feed. `newestOf` returns a number for sorting; this one returns
+  // the timestamp itself, for display.
+  const newestHappensAt = (items: TimelineRecord[]) =>
+    items.reduce(
+      (latest, item) =>
+        new Date(String(item.happensAt)).getTime() >
+        new Date(String(latest)).getTime()
+          ? String(item.happensAt)
+          : latest,
+      String(items[0]?.happensAt ?? ''),
+    );
+
+  const renderHead = (
+    item: TimelineRecord,
+    unread: boolean,
+    touchedAt?: string,
+  ) => {
     const described = describe(item);
     const { target, author, objectLabel, actionLabel, objectNameSingular } =
       described;
@@ -1967,7 +2005,7 @@ const ActivityFeed = () => {
                 whiteSpace: 'nowrap',
               }}
             >
-              {formatAgo(String(item.happensAt))}
+              {formatAgo(touchedAt ?? String(item.happensAt))}
             </span>
           </div>
 
@@ -2134,6 +2172,7 @@ const ActivityFeed = () => {
     // cursor the same way. A row has no frame to outline, so the reaction is a
     // fill — the standard list affordance — rather than the card's border.
     const isRowHovered = hoveredCard === group.key;
+    const touchedAt = newestHappensAt(group.items);
 
     return (
       <div
@@ -2145,11 +2184,19 @@ const ActivityFeed = () => {
           borderBottom: SHOW_TIMELINE_RAIL
             ? 'none'
             : `1px solid ${palette.border}`,
-          background: isRowHovered ? palette.hover : 'transparent',
+          // Unread rows carry the tint; hovering deepens it rather than
+          // swapping it for grey, so the cursor never hides the state.
+          background: unread
+            ? isRowHovered
+              ? palette.unreadHover
+              : palette.unread
+            : isRowHovered
+              ? palette.hover
+              : 'transparent',
           transition: 'background 140ms ease',
         }}
       >
-        {renderHead(head, unread)}
+        {renderHead(head, unread, touchedAt)}
 
         {attachments.length > 0 && (
           <div
@@ -2613,7 +2660,7 @@ const ActivityFeed = () => {
   };
 
   const renderBuzzPost = (post: (typeof buzzPosts)[number]) => {
-    const { note, comments, originalBody } = post;
+    const { note, comments, originalBody, touchedAt } = post;
     const title = typeof note.title === 'string' ? note.title : t('Untitled');
     const author = readDisplayName(note.createdBy);
     const noteColor = getObjectColor('note');
@@ -2666,7 +2713,7 @@ const ActivityFeed = () => {
                 {author !== '' ? author : t('Unknown author')}
               </div>
               <div style={{ fontSize: '0.85rem', color: palette.textLight }}>
-                {formatAgo(String(note.createdAt))}
+                {formatAgo(touchedAt)}
               </div>
             </div>
           </div>
@@ -2819,7 +2866,13 @@ const ActivityFeed = () => {
           borderBottom: SHOW_TIMELINE_RAIL
             ? 'none'
             : `1px solid ${palette.border}`,
-          background: isRowHovered ? palette.hover : 'transparent',
+          background: unread
+            ? isRowHovered
+              ? palette.unreadHover
+              : palette.unread
+            : isRowHovered
+              ? palette.hover
+              : 'transparent',
           transition: 'background 140ms ease',
         }}
       >
