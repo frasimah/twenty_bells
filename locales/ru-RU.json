@@ -43,11 +43,11 @@
   "Tasks": "Задачи",
   "Team notes and the comments on them.": "Заметки команды и комментарии к ним.",
   "The Bell": "",
-  "The feed keeps the {limit} most recent events; the workspace has {total}": "Лента держит {limit} последних событий; в рабочем пространстве их {total}",
   "Turned off in the app settings — SHOW_ATTACHMENTS": "Выключено в настройках приложения — SHOW_ATTACHMENTS",
   "Unknown author": "Автор неизвестен",
   "Untitled": "Без названия",
   "Upcoming": "Ближайшие",
+  "Updates in the last {days} days: {total}. The feed loads at most {limit}.": "Обновлений за последние {days} дней: {total}. Лента загружает не больше {limit}.",
   "added": "добавлен",
   "appended: {text}": "дописано: {text}",
   "bulk change": "массовое изменение",
@@ -70,7 +70,6 @@
   "text shortened": "текст сокращён",
   "today": "сегодня",
   "updated": "изменена",
-  "{count} events": "{count} событий",
   "{count} more events on this record": "ещё {count} событий по этой записи",
   "{count} × {object}": "{count} × {object}",
   "{days}d": "{days} дн",
@@ -78,5 +77,5 @@
   "{hidden} more comments": "ещё {hidden} комментариев",
   "{hours}h": "{hours} ч",
   "{minutes}m": "{minutes} мин",
-  "{shown} shown · {loaded} loaded": "{shown} на экране · {loaded} загружено"
+  "{shown} of {total} updates this week": "{shown} из {total} обновлений за неделю"
 }

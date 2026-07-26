@@ -43,11 +43,11 @@
   "Tasks": "Tasks",
   "Team notes and the comments on them.": "Team notes and the comments on them.",
   "The Bell": "The Bell",
-  "The feed keeps the {limit} most recent events; the workspace has {total}": "The feed keeps the {limit} most recent events; the workspace has {total}",
   "Turned off in the app settings — SHOW_ATTACHMENTS": "Turned off in the app settings — SHOW_ATTACHMENTS",
   "Unknown author": "Unknown author",
   "Untitled": "Untitled",
   "Upcoming": "Upcoming",
+  "Updates in the last {days} days: {total}. The feed loads at most {limit}.": "Updates in the last {days} days: {total}. The feed loads at most {limit}.",
   "added": "added",
   "appended: {text}": "appended: {text}",
   "bulk change": "bulk change",
@@ -70,7 +70,6 @@
   "text shortened": "text shortened",
   "today": "today",
   "updated": "updated",
-  "{count} events": "{count} events",
   "{count} more events on this record": "{count} more events on this record",
   "{count} × {object}": "{count} × {object}",
   "{days}d": "{days}d",
@@ -78,5 +77,5 @@
   "{hidden} more comments": "{hidden} more comments",
   "{hours}h": "{hours}h",
   "{minutes}m": "{minutes}m",
-  "{shown} shown · {loaded} loaded": "{shown} shown · {loaded} loaded"
+  "{shown} of {total} updates this week": "{shown} of {total} updates this week"
 }

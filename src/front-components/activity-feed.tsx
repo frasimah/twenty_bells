@@ -60,6 +60,17 @@ const PAGE_SIZE = readNumberSetting('PAGE_SIZE', 50);
 // person actually catches up on, and one request keeps them exact — no gaps
 // between pages, no duplicates when a new event arrives mid-scroll.
 const FEED_LIMIT = 100;
+// The feed is a week of work: the denominator under it is the number of
+// updates in that week, and it does not move as pages are loaded.
+const FEED_WINDOW_DAYS = 7;
+const FEED_PAGE_SIZE = 20;
+
+// Service rows of our own object are excluded by the server, so the count it
+// returns is the same number the panel would show — no silent discrepancy.
+const feedFilter = () =>
+  `happensAt[gte]:${new Date(
+    Date.now() - FEED_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+  ).toISOString()},not(name[startsWith]:${HIDDEN_EVENT_PREFIX})`;
 const SHOW_TIMELINE_RAIL = readBooleanSetting('SHOW_TIMELINE_RAIL', false);
 const SHOW_ATTACHMENTS = readBooleanSetting('SHOW_ATTACHMENTS', true);
 // Links are looked up for the whole page of records, and a record can carry
@@ -754,7 +765,8 @@ const ActivityFeed = () => {
         '/rest/timelineActivities',
         {
           query: {
-            limit: PAGE_SIZE,
+            filter: feedFilter(),
+            limit: FEED_PAGE_SIZE,
             depth: 1,
             order_by: 'happensAt[DescNullsLast]',
           },
@@ -789,10 +801,11 @@ const ActivityFeed = () => {
         '/rest/timelineActivities',
         {
           query: {
+            filter: feedFilter(),
             // A whole page every time. Trimming the request to the remaining
             // room made the last clicks add one or two rows each; the hard cap
             // on `changes` does the trimming instead.
-            limit: PAGE_SIZE,
+            limit: FEED_PAGE_SIZE,
             depth: 1,
             order_by: 'happensAt[DescNullsLast]',
             starting_after: cursorFor(oldest),
@@ -3223,25 +3236,21 @@ const ActivityFeed = () => {
                     color={palette.textMid}
                   />
                 )}
-                {/* Counts what is on the screen. Counting what had been
-                    fetched instead read as "44 events" above sixteen visible
-                    rows, because the personal filter drops the rest — and the
-                    server's own total counts events the panel never renders.
-                    When the filter hides nothing, both numbers coincide and
-                    only one is shown. */}
+                {/* The numerator is what is on the screen, the denominator
+                    the week's updates — a fixed number that paging does not
+                    move. The personal filter can hold rows back, which is why
+                    the two rarely meet. */}
                 <span
                   title={t(
-                    'The feed keeps the {limit} most recent events; the workspace has {total}',
-                    { limit: FEED_LIMIT, total: feedTotal },
+                    'Updates in the last {days} days: {total}. The feed loads at most {limit}.',
+                    { days: FEED_WINDOW_DAYS, total: feedTotal, limit: FEED_LIMIT },
                   )}
                   style={{ fontSize: '0.85rem', color: palette.textLight }}
                 >
-                  {visibleEventCount === loadedEvents.length
-                    ? t('{count} events', { count: visibleEventCount })
-                    : t('{shown} shown · {loaded} loaded', {
-                        shown: visibleEventCount,
-                        loaded: loadedEvents.length,
-                      })}
+                  {t('{shown} of {total} updates this week', {
+                    shown: visibleEventCount,
+                    total: feedTotal,
+                  })}
                 </span>
               </div>
             )}
