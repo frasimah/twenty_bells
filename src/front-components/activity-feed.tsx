@@ -28,7 +28,11 @@ import { ACTIVITY_FEED_FRONT_COMPONENT_UNIVERSAL_IDENTIFIER } from 'src/constant
 // parses a few hundred kilobytes of JSON into objects the sandbox then has to
 // collect — that churn is what made Safari reclaim the tab.
 const POLL_INTERVAL_MS = 60 * 1000;
-const PAGE_SIZE = 50;
+// Tasks and Buzz each pull a page of records plus a page of the edit events
+// that make up their comment threads — four requests that were the two most
+// expensive polls in the app. Twenty-five of each is more than a side panel
+// shows before scrolling.
+const TAB_PAGE_SIZE = 25;
 // A panel left open on a second screen should not poll all day. After this long
 // without a touch the loop goes quiet, and the next click inside the panel
 // wakes it and refreshes at once — so idle time costs a timer tick, not a
@@ -61,7 +65,7 @@ const feedFilter = () =>
   ).toISOString()},not(name[startsWith]:${HIDDEN_EVENT_PREFIX})`;
 // Links are looked up for the whole page of records, and a record can carry
 // several — so they get a wider budget than the page itself.
-const LINK_PAGE_SIZE = Math.min(PAGE_SIZE * 4, 200);
+const LINK_PAGE_SIZE = Math.min(FEED_LIMIT * 2, 200);
 
 // An import or a bulk edit produces the same event on dozens of records at
 // once. One row per record buries everything else, so a burst of identical
@@ -1153,10 +1157,13 @@ const ActivityFeed = () => {
       const client = new RestApiClient();
 
       const [response, editsResponse] = await Promise.all([
+        // depth 0: the assignee is needed as a name, and `assigneeId` plus the
+        // member map already give that — the nested record was four fifths of
+        // this response.
         client.get<{ data?: { tasks?: TimelineRecord[] } }>('/rest/tasks', {
           query: {
-            limit: PAGE_SIZE,
-            depth: 1,
+            limit: TAB_PAGE_SIZE,
+            depth: 0,
             order_by: 'dueAt[AscNullsLast]',
           },
         }),
@@ -1167,16 +1174,16 @@ const ActivityFeed = () => {
           {
             query: {
               filter: 'name[eq]:task.updated',
-              limit: PAGE_SIZE,
-              depth: 1,
-              order_by: 'happensAt[AscNullsLast]',
+              limit: TAB_PAGE_SIZE,
+              depth: 0,
+              order_by: 'happensAt[DescNullsLast]',
             },
           },
         ),
       ]);
 
       setTasks(response.data?.tasks ?? []);
-      setTaskEdits(editsResponse.data?.timelineActivities ?? []);
+      setTaskEdits((editsResponse.data?.timelineActivities ?? []).reverse());
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
@@ -1190,10 +1197,12 @@ const ActivityFeed = () => {
       const client = new RestApiClient();
 
       const [notesResponse, editsResponse] = await Promise.all([
+        // depth 0: a post needs its own columns — title, body, createdBy,
+        // timestamps — and its links arrive separately as noteTargets.
         client.get<{ data?: { notes?: TimelineRecord[] } }>('/rest/notes', {
           query: {
-            limit: PAGE_SIZE,
-            depth: 1,
+            limit: TAB_PAGE_SIZE,
+            depth: 0,
             order_by: 'createdAt[DescNullsLast]',
           },
         }),
@@ -1202,16 +1211,21 @@ const ActivityFeed = () => {
           {
             query: {
               filter: 'name[eq]:note.updated',
-              limit: PAGE_SIZE,
-              depth: 1,
-              order_by: 'happensAt[AscNullsLast]',
+              limit: TAB_PAGE_SIZE,
+              depth: 0,
+              // Newest first, because that is the end the limit cuts. Asking
+              // ascending meant the page held the oldest edits in the
+              // workspace and the recent comments fell off it.
+              order_by: 'happensAt[DescNullsLast]',
             },
           },
         ),
       ]);
 
       setNotes(notesResponse.data?.notes ?? []);
-      setNoteEdits(editsResponse.data?.timelineActivities ?? []);
+      // Threads are read oldest-first downstream, so the page goes back the
+      // way it came.
+      setNoteEdits((editsResponse.data?.timelineActivities ?? []).reverse());
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
@@ -2405,7 +2419,10 @@ const ActivityFeed = () => {
     const due = describeDue(task.dueAt);
     const isOverdue = due.overdueDays > 0;
     const title = typeof task.title === 'string' ? task.title : t('Untitled');
-    const assignee = readDisplayName(task.assignee);
+    // The task arrives without its relations, so the assignee is resolved
+    // through the member map the panel already holds.
+    const assignee =
+      memberNames[String(task.assigneeId ?? '')] ?? readDisplayName(task.assignee);
     const classColor = getObjectColor('task');
     // A deal matters more than the contact it goes through, so it leads.
     const RANK: Record<string, number> = { opportunity: 0, company: 1 };
