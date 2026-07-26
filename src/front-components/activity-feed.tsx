@@ -3266,26 +3266,6 @@ const ActivityFeed = () => {
               {overdueTasks.length}
             </span>
           )}
-          {view === 'tasks' && openTasks.length > 0 && (
-            <span
-              title={t("Open tasks in total: {count}", { count: openTasks.length })}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                minWidth: '19px',
-                height: '19px',
-                padding: '0 5px',
-                borderRadius: '10px',
-                border: `1px solid ${ACCENT_BLUE}`,
-                fontSize: '0.85rem',
-                fontWeight: 400,
-                color: ACCENT_BLUE,
-              }}
-            >
-              {openTasks.length}
-            </span>
-          )}
           {view === 'feed' && unreadCount > 0 && (
             <span
               style={{
