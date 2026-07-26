@@ -751,9 +751,6 @@ const ActivityFeed = () => {
   const [myCompanyIds, setMyCompanyIds] = useState<string[]>([]);
   const [memberNames, setMemberNames] = useState<Record<string, string>>({});
   const [memberAvatars, setMemberAvatars] = useState<Record<string, string>>({});
-  const [enforcement, setEnforcement] = useState<
-    'server' | 'client' | 'unknown'
-  >('unknown');
   const [view, setView] = useState<'feed' | 'tasks' | 'buzz'>('feed');
   const [tasks, setTasks] = useState<TimelineRecord[]>([]);
   // Every task assigned to the reader that is not done — the whole workspace,
@@ -1005,8 +1002,20 @@ const ActivityFeed = () => {
         ),
       );
 
+      // Asked for by id rather than looked up in the page above: the member
+      // list is capped at two hundred, and in a workspace larger than that the
+      // viewer may simply not be on it. Failing to place them used to mean
+      // failing to filter.
+      const self = await client.get<{
+        data?: { workspaceMembers?: { id: string }[] };
+      }>('/rest/workspaceMembers', {
+        query: { filter: `userId[eq]:${userId}`, limit: 1 },
+      });
+
       const id =
-        allMembers.find((member) => member.userId === userId)?.id ?? null;
+        self.data?.workspaceMembers?.[0]?.id ??
+        allMembers.find((member) => member.userId === userId)?.id ??
+        null;
 
       setMemberId(id);
 
@@ -1021,26 +1030,6 @@ const ActivityFeed = () => {
       });
 
       setMyCompanyIds((companies.data?.companies ?? []).map((c) => c.id));
-
-
-      // Is row-level security actually enforced? Row-level permissions are an
-      // Organization-plan feature, so the same build lands on instances where
-      // the predicates in our role are live and on ones where they are inert.
-      // Rather than guess the plan, ask the server for records it should have
-      // withheld: if a deal owned by somebody else comes back, enforcement is
-      // off and the panel has to filter by itself.
-      const probe = await client.get<{
-        data?: { opportunities?: { ownerId?: string | null }[] };
-      }>('/rest/opportunities', { query: { limit: 100 } });
-
-      const owned = (probe.data?.opportunities ?? []).filter(
-        (row) => typeof row.ownerId === 'string' && row.ownerId !== '',
-      );
-      const foreign = owned.filter((row) => row.ownerId !== id);
-
-      setEnforcement(
-        foreign.length > 0 ? 'client' : owned.length > 0 ? 'server' : 'unknown',
-      );
     } catch {
       // Without a resolved member the panel falls back to showing everything.
     }
@@ -1409,8 +1398,11 @@ const ActivityFeed = () => {
   // stop the data reaching the browser. The app role is what actually governs
   // access, and it is workspace-wide.
   const isMine = (item: TimelineRecord) => {
+    // Nobody's feed is everybody's feed. If the viewer cannot be placed in the
+    // workspace there is no "mine" to compute, and showing the lot instead is
+    // the opposite of what this panel is for.
     if (memberId === null) {
-      return true;
+      return false;
     }
 
     // Anything you did is yours. Events made through the API carry no
@@ -1494,23 +1486,20 @@ const ActivityFeed = () => {
     [items, olderItems, documentItems],
   );
 
-  // On an enforcing instance the server already scoped the response, so
-  // filtering again would only hide records the viewer is entitled to.
+  // The panel is personal, full stop. A toggle to "everything" made the counter
+  // meaningless — a number under a feed that showed a fraction of it — and
+  // nobody reads a workspace-wide firehose anyway. The variant with the switch
+  // is kept on the backup/scope-toggle branch.
+  //
+  // This filter used to be skipped where the server appeared to scope the data
+  // itself. It does not any more: server-side scoping can only ever narrow the
+  // response further, so running the personal filter on top of it is always
+  // safe, while trusting it was not.
   const visibleItems = useMemo(
-    () =>
-      // The panel is personal, full stop. A toggle to "everything" made the
-      // counter meaningless — a number under a feed that showed a fraction of
-      // it — and nobody reads a workspace-wide firehose anyway. The variant
-      // with the switch is kept on the backup/scope-toggle branch.
-      enforcement === 'server' ? allItems : allItems.filter(isMine),
+    () => allItems.filter(isMine),
     // `isMine` is rebuilt every render; what it actually reads is listed here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [
-      allItems,
-      enforcement,
-      memberId,
-      myCompanyIds,
-    ],
+    [allItems, memberId, myCompanyIds],
   );
 
   // Tasks view: what is hanging, not what changed. Done tasks are dropped —
@@ -1520,13 +1509,12 @@ const ActivityFeed = () => {
       return false;
     }
 
-    if (enforcement === 'server' || memberId === null) {
-      return true;
-    }
-
+    // A task belongs to the two people it names. One with neither — no
+    // assignee, set by somebody else — belongs to nobody here.
     return (
-      task.assigneeId === memberId ||
-      readMemberId(task.createdBy) === memberId
+      memberId !== null &&
+      (task.assigneeId === memberId ||
+        readMemberId(task.createdBy) === memberId)
     );
   });
 
@@ -2475,7 +2463,12 @@ const ActivityFeed = () => {
   const renderTask = (task: TimelineRecord) => {
     const due = describeDue(task.dueAt);
     const isOverdue = due.overdueDays > 0;
-    const title = typeof task.title === 'string' ? task.title : t('Untitled');
+    // An empty string is a string: without this a nameless task drew a card
+    // with a status, a date and no line saying what it was.
+    const title =
+      typeof task.title === 'string' && task.title.trim() !== ''
+        ? task.title
+        : t('Untitled');
     // The task arrives without its relations, so the assignee is resolved
     // through the member map the panel already holds.
     const assignee =
@@ -2864,7 +2857,10 @@ const ActivityFeed = () => {
 
   const renderBuzzPost = (post: (typeof buzzPosts)[number]) => {
     const { note, comments, originalBody, touchedAt } = post;
-    const title = typeof note.title === 'string' ? note.title : t('Untitled');
+    const title =
+      typeof note.title === 'string' && note.title.trim() !== ''
+        ? note.title
+        : t('Untitled');
     const author = readDisplayName(note.createdBy);
     const noteColor = getObjectColor('note');
 
@@ -3387,32 +3383,6 @@ const ActivityFeed = () => {
               color={palette.textMid}
             />
           )}
-        </div>
-
-        <div
-          style={{ display: 'flex', gap: '6px', flexShrink: 0, whiteSpace: 'nowrap' }}
-        >
-          {view === 'buzz' ? (
-            // Buzz is the team wall: everyone's notes, always. A personal
-            // filter there would contradict what the section is for.
-            <></>
-          ) : enforcement === 'server' ? (
-            <span
-              title={t("Row-level permissions are on: Twenty scopes the data itself and the panel adds no filtering.")}
-              style={{
-                padding: '4px 9px',
-                borderRadius: '4px',
-                background: palette.buttonBackground,
-                color: palette.textMid,
-                fontSize: '0.85rem',
-                fontWeight: 400,
-                whiteSpace: 'nowrap',
-                flexShrink: 0,
-              }}
-            >
-              {t('Access: server')}
-            </span>
-          ) : null}
         </div>
       </div>
 

@@ -1,7 +1,6 @@
 {
   "1 more comment": "1 more comment",
   "1 more event on this record": "1 more event on this record",
-  "Access: server": "Access: server",
   "Assigned to you and not done: {count}": "Assigned to you and not done: {count}",
   "By due date": "By due date",
   "Collapse": "Collapse",
@@ -32,7 +31,6 @@
   "Per-user last seen marker for the activity feed": "Per-user last seen marker for the activity feed",
   "Person": "Person",
   "Record": "Record",
-  "Row-level permissions are on: Twenty scopes the data itself and the panel adds no filtering.": "Row-level permissions are on: Twenty scopes the data itself and the panel adds no filtering.",
   "Scanned {loaded} of {total} workspace updates from the last {days} days": "Scanned {loaded} of {total} workspace updates from the last {days} days",
   "Show more": "Show more",
   "Show records": "Show records",

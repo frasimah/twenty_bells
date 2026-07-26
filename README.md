@@ -56,12 +56,9 @@ Updating after a `git pull` is the same `yarn twenty apply`. To remove the app, 
 
 ## Permissions
 
-The panel calls the API under the **application's** role, not under the permissions of the person who opened it. So:
+The panel calls the API under the **application's** role, not under the permissions of the person who opened it, so it decides relevance itself: by deal owner, company account owner, task assignee and task author. **It always does.** On the Organization plan Twenty also scopes the response server-side, which can only narrow it further — so the two compose, and neither is skipped on account of the other.
 
-- on the **Organization** plan row-level permissions apply — Twenty scopes the data itself and the panel adds no filtering of its own;
-- on other plans the predicates sync but stay inert, and the panel filters client-side: by deal owner, company account owner and task assignee.
-
-Which mode is live is detected at runtime: the panel asks the server for records it should have withheld and reads the answer. When Twenty does the scoping itself, the header carries an **Access: server** badge; otherwise the panel filters on its own and says nothing.
+An earlier version tried to be clever here. It probed one object, and where the answer looked like the server was scoping the data it turned its own filter off for everything — including objects the server was not scoping at all. A task with no assignee, set by somebody else, then showed up in a personal feed. Guessing at someone else's enforcement is not worth the request it costs.
 
 **The client-side filter is not a security boundary.** Until row-level permissions are enforced, the server hands the whole workspace to the browser. Install the app where that is acceptable.
 
