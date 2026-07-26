@@ -1755,7 +1755,7 @@ const ActivityFeed = () => {
             borderLeft: `2px solid ${accentColor}`,
             fontSize: '0.92rem',
             fontWeight: 400,
-            color: palette.textMid,
+            color: palette.text,
             lineHeight: '1.5',
             overflowWrap: 'anywhere',
           }}
@@ -1785,7 +1785,7 @@ const ActivityFeed = () => {
                 borderLeft: `2px solid ${palette.border}`,
                 fontSize: '0.92rem',
                 fontWeight: 400,
-                color: palette.textMid,
+                color: palette.text,
                 lineHeight: '1.55',
                 whiteSpace: 'pre-wrap',
                 overflowWrap: 'anywhere',
@@ -1813,7 +1813,7 @@ const ActivityFeed = () => {
             overflowWrap: 'anywhere',
           }}
         >
-          <span style={{ color: palette.textLight }}>
+          <span style={{ color: palette.textMid }}>
             {fieldMeta[`${described.objectNameSingular}.${change.field}`]
               ?.label ?? change.field}
             :{' '}
@@ -2016,7 +2016,10 @@ const ActivityFeed = () => {
               <span
                 style={{
                   fontSize: '0.92rem',
-                  fontWeight: unread ? 500 : 400,
+                  // A card's heading is a heading whether or not it has been
+                  // read; weight was carrying the unread state, which the tint
+                  // now says on its own — and it left read cards looking faded.
+                  fontWeight: 500,
                   color: isBroken ? palette.textLight : palette.text,
                   textDecoration: isBroken ? 'line-through' : 'none',
                   overflow: 'hidden',
@@ -2046,7 +2049,9 @@ const ActivityFeed = () => {
               marginTop: '2px',
               fontSize: '0.92rem',
               fontWeight: 400,
-              color: palette.textLight,
+              // Secondary, not tertiary: what happened and who did it is the
+              // sentence of the card. Tertiary grey is for the timestamp.
+              color: palette.textMid,
               lineHeight: '1.5',
             }}
           >
@@ -2126,7 +2131,7 @@ const ActivityFeed = () => {
                     <span
                       style={{
                         fontSize: '0.92rem',
-                        color: palette.textMid,
+                        color: palette.text,
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
                       }}
@@ -2278,7 +2283,7 @@ const ActivityFeed = () => {
                     style={{
                       fontSize: '0.92rem',
                       fontWeight: 400,
-                      color: palette.textMid,
+                      color: palette.text,
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
                       whiteSpace: 'nowrap',
