@@ -1348,50 +1348,6 @@ const ActivityFeed = () => {
     [allItems],
   );
 
-  // Files ride at the top of the feed in their own strip, so they are taken
-  // out of the change stream below — otherwise every document would show up
-  // twice, once in the strip and once as a row.
-  const documents = useMemo(
-    () => visibleItems.filter((item) => item.name === ATTACHMENT_EVENT),
-    [visibleItems],
-  );
-
-  // A document belongs to a record, so the record is the row and its files sit
-  // under it — one deal with four files is one island, not four loose lines.
-  const documentGroups = useMemo(() => {
-    const index = new Map<
-      string,
-      { key: string; target: ResolvedTarget | null; items: TimelineRecord[] }
-    >();
-
-    for (const item of documents) {
-      const target = resolveTarget(item);
-      const key =
-        target !== null
-          ? `${target.objectNameSingular}:${target.recordId}`
-          : `document:${String(item.id)}`;
-      const existing = index.get(key);
-
-      if (existing === undefined) {
-        index.set(key, { key, target, items: [item] });
-      } else {
-        existing.items.push(item);
-      }
-    }
-
-    return [...index.values()];
-  }, [documents]);
-
-  // How many files the personal filter is holding back. Without this the strip
-  // just vanishes and looks broken — the honest answer is that they belong to
-  // records that are not yours.
-  const hiddenDocuments = useMemo(
-    () =>
-      allItems.filter((item) => item.name === ATTACHMENT_EVENT).length -
-      documents.length,
-    [allItems, documents],
-  );
-
   // Which records the chips will actually be asked about. The signature keeps
   // the effect from refiring when the same set comes back in another order.
   const linkedIds = useMemo(() => {
@@ -1426,15 +1382,23 @@ const ActivityFeed = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [linkSignature]);
 
+  // Files are grouped with everything else, so a record's card carries both
+  // what changed on it and what was filed under it. A record with only files
+  // still forms a card of its own.
   // The cap is enforced here as well as at fetch time: whatever arrives, the
   // feed never grows past FEED_LIMIT rows of change history.
-  const changes = useMemo(
-    () =>
-      visibleItems
-        .filter((item) => item.name !== ATTACHMENT_EVENT)
-        .slice(0, FEED_LIMIT),
-    [visibleItems],
-  );
+  const changes = useMemo(() => {
+    // The cap counts change events only; files ride along with the record they
+    // belong to. Cutting them by the event window was tried and thrown away —
+    // files are older than the latest edits, so it left one document out of a
+    // hundred on screen.
+    const events = visibleItems
+      .filter((item) => item.name !== ATTACHMENT_EVENT)
+      .slice(0, FEED_LIMIT);
+    const files = visibleItems.filter((item) => item.name === ATTACHMENT_EVENT);
+
+    return [...events, ...files].sort(byHappensAtDesc);
+  }, [visibleItems]);
 
   const entries = useMemo<FeedEntry[]>(() => {
   const bulkCounts = new Map<string, number>();
@@ -1953,7 +1917,13 @@ const ActivityFeed = () => {
   };
 
   const renderGroup = (group: FeedGroup, unread: boolean) => {
-    const [head, ...rest] = group.items;
+    // Files are not "one more event on this record" — they are things you come
+    // back to. They stay visible under the head instead of hiding behind the
+    // counter, and a card made only of files leads with the newest one.
+    const files = group.items.filter((item) => item.name === ATTACHMENT_EVENT);
+    const events = group.items.filter((item) => item.name !== ATTACHMENT_EVENT);
+    const [head, ...rest] = events.length > 0 ? events : files;
+    const attachments = events.length > 0 ? files : files.slice(1);
     const isExpanded = expandedKeys.includes(group.key);
 
     return (
@@ -1968,6 +1938,49 @@ const ActivityFeed = () => {
         }}
       >
         {renderHead(head, unread)}
+
+        {attachments.length > 0 && (
+          <div
+            style={{
+              padding: '5px 16px 0',
+              marginLeft: SHOW_TIMELINE_RAIL ? '20px' : '0',
+            }}
+          >
+            {attachments.map((file) => {
+              const fileName =
+                typeof file.linkedRecordCachedName === 'string'
+                  ? file.linkedRecordCachedName
+                  : t('Document');
+
+              return (
+                <div
+                  key={String(file.id)}
+                  style={{
+                    marginTop: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    minWidth: 0,
+                  }}
+                >
+                  {renderFileMark(fileName)}
+                  <span
+                    style={{
+                      fontSize: '0.92rem',
+                      fontWeight: 400,
+                      color: palette.textMid,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {fileName}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {rest.length > 0 && (
           <div
@@ -2733,213 +2746,6 @@ const ActivityFeed = () => {
     );
   };
 
-  // Files first, in a strip of their own: a document is a thing you go back to,
-  // not a change you read once — burying it among status edits made it
-  // effectively invisible. Grouped by the record they hang on, because that is
-  // what a document belongs to: a deal, a contact, a custom object.
-  const DOCUMENT_GROUPS_SHOWN = 4;
-
-  const renderDocumentGroup = (group: {
-    key: string;
-    target: ResolvedTarget | null;
-    items: TimelineRecord[];
-  }) => {
-    const { target } = group;
-    const classColor = getObjectColor(target?.objectNameSingular ?? '');
-    const label = target !== null && target.label !== '' ? target.label : t('Record');
-    const isHovered = hoveredCard === group.key;
-    // Same second line as every other card: what kind of record this is, what
-    // happened, and who did it. Without it a document read as a loose file
-    // rather than as part of the record's story.
-    const author = readDisplayName(group.items[0].createdBy);
-    const links =
-      target === null
-        ? []
-        : relatedRecords(target.objectNameSingular, target.recordId);
-
-    return (
-      <div
-        key={group.key}
-        onMouseEnter={() => setHoveredCard(group.key)}
-        onMouseLeave={() => setHoveredCard(null)}
-        style={{ padding: '7px 16px 9px' }}
-      >
-        <div
-          onClick={target === null ? undefined : () => openRecord(target)}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            minWidth: 0,
-            cursor: target === null ? 'default' : 'pointer',
-          }}
-        >
-          <InlineAvatar
-            size={15}
-            label={label}
-            color={`${classColor}22`}
-            textColor={classColor}
-            avatarUrl={target?.avatarUrl}
-          />
-          <span
-            style={{
-              fontSize: '0.92rem',
-              fontWeight: 500,
-              color: isHovered ? classColor : palette.text,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {label}
-          </span>
-          <span style={{ flex: 1 }} />
-          <span
-            style={{
-              fontSize: '0.92rem',
-              color: palette.textLight,
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {formatAgo(String(group.items[0].happensAt))}
-          </span>
-        </div>
-
-        <div
-          style={{
-            marginTop: '2px',
-            marginLeft: '21px',
-            fontSize: '0.92rem',
-            fontWeight: 400,
-            color: palette.textLight,
-            lineHeight: '1.5',
-          }}
-        >
-          {target === null ? t('Record') : labelForObject(target.objectNameSingular)}
-          {' · '}
-          {t('document added')}
-          {author !== '' && (
-            <>
-              {' · '}
-              <span
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  verticalAlign: 'middle',
-                }}
-              >
-                <InlineAvatar
-                  size={14}
-                  label={author}
-                  color={palette.mutedFill}
-                  textColor={palette.textMid}
-                  avatarUrl={memberAvatars[readMemberId(group.items[0].createdBy) ?? '']}
-                />
-                {author}
-              </span>
-            </>
-          )}
-        </div>
-
-        {links.length > 0 && (
-          <div
-            style={{
-              marginTop: '5px',
-              marginLeft: '21px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              flexWrap: 'wrap',
-              rowGap: '5px',
-            }}
-          >
-            {links.map((link) => {
-              const linkColor = getObjectColor(link.objectNameSingular);
-
-              return (
-                <span
-                  key={link.recordId}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    openRecord(link);
-                  }}
-                  title={t('Open: {label}', { label: link.label })}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '5px',
-                    maxWidth: '180px',
-                    padding: '1px 7px 1px 3px',
-                    borderRadius: '4px',
-                    background: `${linkColor}14`,
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  <InlineAvatar
-                    size={14}
-                    label={link.label}
-                    color={`${linkColor}2E`}
-                    textColor={linkColor}
-                    avatarUrl={link.avatarUrl}
-                  />
-                  <span
-                    style={{
-                      fontSize: '0.92rem',
-                      color: palette.textMid,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                    }}
-                  >
-                    {link.label}
-                  </span>
-                </span>
-              );
-            })}
-          </div>
-        )}
-
-        {group.items.map((item) => {
-          const fileName =
-            typeof item.linkedRecordCachedName === 'string'
-              ? item.linkedRecordCachedName
-              : t('Document');
-
-          return (
-            <div
-              key={String(item.id)}
-              onClick={target === null ? undefined : () => openRecord(target)}
-              style={{
-                marginTop: '4px',
-                marginLeft: '21px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                minWidth: 0,
-                cursor: target === null ? 'default' : 'pointer',
-              }}
-            >
-              {renderFileMark(fileName)}
-              <span
-                style={{
-                  fontSize: '0.92rem',
-                  fontWeight: 400,
-                  color: palette.textMid,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {fileName}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-    );
-  };
-
   const renderSectionHeader = (label: string, count?: number) => (
     <div
       style={{
@@ -3170,76 +2976,6 @@ const ActivityFeed = () => {
                 >
                   {t('Turned off in the app settings — SHOW_ATTACHMENTS')}
                 </div>
-              </>
-            )}
-
-            {SHOW_ATTACHMENTS && documents.length === 0 && hiddenDocuments > 0 && (
-              <>
-                {renderSectionHeader(t('Documents'), 0)}
-                <div style={{ padding: '2px 16px 6px' }}>
-                  <button
-                    type="button"
-                    onClick={() => setScope('all')}
-                    style={{
-                      border: 'none',
-                      background: 'transparent',
-                      padding: 0,
-                      fontFamily: 'inherit',
-                      fontSize: '0.92rem',
-                      fontWeight: 400,
-                      color: palette.textMid,
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      textDecoration: 'underline',
-                    }}
-                  >
-                    {t('{count} documents hidden by "Only mine" — show all', {
-                      count: hiddenDocuments,
-                    })}
-                  </button>
-                </div>
-              </>
-            )}
-
-            {documents.length > 0 && (
-              <>
-                {renderSectionHeader(t('Documents'), documents.length)}
-                {(expandedKeys.includes('documents')
-                  ? documentGroups
-                  : documentGroups.slice(0, DOCUMENT_GROUPS_SHOWN)
-                ).map(renderDocumentGroup)}
-
-                {documentGroups.length > DOCUMENT_GROUPS_SHOWN && (
-                  <div style={{ padding: '4px 16px 0' }}>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setExpandedKeys((keys) =>
-                          keys.includes('documents')
-                            ? keys.filter((key) => key !== 'documents')
-                            : [...keys, 'documents'],
-                        )
-                      }
-                      style={{
-                        border: 'none',
-                        background: 'transparent',
-                        padding: 0,
-                        fontFamily: 'inherit',
-                        fontSize: '0.92rem',
-                        fontWeight: 400,
-                        color: palette.textMid,
-                        cursor: 'pointer',
-                        textDecoration: 'underline',
-                      }}
-                    >
-                      {expandedKeys.includes('documents')
-                        ? t('Collapse')
-                        : t('{count} more records with documents', {
-                            count: documentGroups.length - DOCUMENT_GROUPS_SHOWN,
-                          })}
-                    </button>
-                  </div>
-                )}
               </>
             )}
 

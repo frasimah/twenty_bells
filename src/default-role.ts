@@ -7,6 +7,7 @@ import {
 import {
   APP_DISPLAY_NAME,
   DEFAULT_ROLE_UNIVERSAL_IDENTIFIER,
+  FEED_READ_STATE_OBJECT_UNIVERSAL_IDENTIFIER,
 } from 'src/constants/universal-identifiers';
 
 const OPPORTUNITY = STANDARD_OBJECT_UNIVERSAL_IDENTIFIERS.opportunity;
@@ -25,10 +26,23 @@ export default defineApplicationRole({
   universalIdentifier: DEFAULT_ROLE_UNIVERSAL_IDENTIFIER,
   label: `${APP_DISPLAY_NAME} default function role`,
   description: `${APP_DISPLAY_NAME} default function role`,
+  // The panel reads widely — timeline, attachments, tasks, notes, their links
+  // and workspace members — but writes exactly one thing: the reader's own
+  // "last seen" marker. Write access is scoped to that object instead of the
+  // whole workspace, so installing the app cannot cost a workspace its data.
   canReadAllObjectRecords: true,
-  canUpdateAllObjectRecords: true,
-  canSoftDeleteAllObjectRecords: true,
+  canUpdateAllObjectRecords: false,
+  canSoftDeleteAllObjectRecords: false,
   canDestroyAllObjectRecords: false,
+  objectPermissions: [
+    {
+      objectUniversalIdentifier: FEED_READ_STATE_OBJECT_UNIVERSAL_IDENTIFIER,
+      canReadObjectRecords: true,
+      canUpdateObjectRecords: true,
+      canSoftDeleteObjectRecords: false,
+      canDestroyObjectRecords: false,
+    },
+  ],
   rowLevelPermissionPredicates: [
     {
       universalIdentifier: '7a5b1d02-6f43-4c8e-9a21-3d5e8c4b2f10',
