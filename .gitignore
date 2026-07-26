@@ -41,3 +41,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 *.d.ts
+
+# Local-only debugging helpers — demo data must never ship
+*.local.mjs
+*.local.js

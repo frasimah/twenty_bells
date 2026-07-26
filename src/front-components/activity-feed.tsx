@@ -61,7 +61,6 @@ const PAGE_SIZE = readNumberSetting('PAGE_SIZE', 50);
 // between pages, no duplicates when a new event arrives mid-scroll.
 const FEED_LIMIT = 100;
 const SHOW_TIMELINE_RAIL = readBooleanSetting('SHOW_TIMELINE_RAIL', false);
-const SHOW_SEED_BUTTON = readBooleanSetting('SHOW_SEED_BUTTON', false);
 const SHOW_ATTACHMENTS = readBooleanSetting('SHOW_ATTACHMENTS', true);
 // Links are looked up for the whole page of records, and a record can carry
 // several — so they get a wider budget than the page itself.
@@ -103,41 +102,6 @@ const LINKED_KIND_LABELS = {
   task: msg('task'),
   attachment: msg('document'),
 } as const;
-
-const SEED_COMPANIES = [
-  'Аурум Групп',
-  'Лаборатория Света',
-  'СтройМонтаж СПб',
-  'Технопарк Восток',
-] as const;
-
-const SEED_CONTACTS = [
-  { firstName: 'Сергей', lastName: 'Ковалёв', jobTitle: 'Главный инженер' },
-  { firstName: 'Анна', lastName: 'Реброва', jobTitle: 'Руководитель закупок' },
-  { firstName: 'Дмитрий', lastName: 'Лапин', jobTitle: 'Технический директор' },
-  { firstName: 'Ольга', lastName: 'Наумова', jobTitle: 'Руководитель проекта' },
-] as const;
-
-const SEED_DEALS = [
-  'Освещение офиса на Тверской',
-  'Поставка светильников для ТЦ «Галерея»',
-  'Реконструкция холла, фаза 2',
-  'Комплект мебели для переговорных',
-] as const;
-
-const SEED_COMMENTS = [
-  'Клиент просит смету до пятницы, бюджет до 800 тыс.',
-  'Согласовали образцы, ждём подтверждение по срокам поставки.',
-  'Перенесли встречу на следующий вторник, готовлю расчёт с монтажом.',
-  'Запросили аналог подешевле — подобрать замену по двум позициям.',
-] as const;
-
-const SEED_DOCUMENTS = [
-  'КП №1042.pdf',
-  'Смета_итоговая.xlsx',
-  'Техзадание_v3.docx',
-  'Спецификация оборудования.pdf',
-] as const;
 
 const LINKED_ACTION_LABELS = {
   created: msg('added'),
@@ -762,7 +726,6 @@ const ActivityFeed = () => {
   const [lastSeenAt, setLastSeenAt] = useState<string | null>(null);
   const [readStateId, setReadStateId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSeeding, setIsSeeding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [feedTotal, setFeedTotal] = useState(0);
@@ -1196,86 +1159,6 @@ const ActivityFeed = () => {
     }>('/rest/feedReadStates', { userId, lastSeenAt: now });
 
     setReadStateId(created.data?.createFeedReadState?.id ?? null);
-  };
-
-  // Test-data generator: plays out one plausible deal so the feed has a
-  // realistic story to render. Intended for the dev workspace — drop this
-  // button before shipping the app anywhere real, it writes actual records.
-  const seedTestEvents = async () => {
-    setIsSeeding(true);
-
-    try {
-      const client = new RestApiClient();
-      const pick = <T,>(pool: readonly T[], offset: number) =>
-        pool[(Math.floor(Date.now() / 1000) + offset) % pool.length];
-
-      const company = pick(SEED_COMPANIES, 0);
-      const contact = pick(SEED_CONTACTS, 1);
-      const deal = pick(SEED_DEALS, 2);
-      const comment = pick(SEED_COMMENTS, 3);
-      const document = pick(SEED_DOCUMENTS, 4);
-
-      const createdCompany = await client.post<{
-        data?: { createCompany?: { id: string } };
-      }>('/rest/companies', { name: company });
-
-      const companyId = createdCompany.data?.createCompany?.id;
-
-      const createdPerson = await client.post<{
-        data?: { createPerson?: { id: string } };
-      }>('/rest/people', {
-        name: { firstName: contact.firstName, lastName: contact.lastName },
-        companyId,
-      });
-
-      const createdDeal = await client.post<{
-        data?: { createOpportunity?: { id: string } };
-      }>('/rest/opportunities', { name: deal, companyId });
-
-      const personId = createdPerson.data?.createPerson?.id;
-      const dealId = createdDeal.data?.createOpportunity?.id;
-
-      if (personId !== undefined) {
-        await client.patch(`/rest/people/${personId}`, {
-          jobTitle: contact.jobTitle,
-        });
-      }
-
-      if (dealId === undefined) {
-        await loadFeed();
-
-        return;
-      }
-
-      await client.patch(`/rest/opportunities/${dealId}`, { stage: 'MEETING' });
-
-      // A comment in Twenty is a note attached to a record: this emits both
-      // `note.created` and `linked-note.created` on the deal.
-      const note = await client.post<{
-        data?: { createNote?: { id: string } };
-      }>('/rest/notes', { title: comment });
-
-      const noteId = note.data?.createNote?.id;
-
-      if (noteId !== undefined) {
-        await client.post('/rest/noteTargets', {
-          noteId,
-          targetOpportunityId: dealId,
-        });
-      }
-
-      await client.post('/rest/attachments', {
-        name: document,
-        fullPath: `attachment/${document}`,
-        targetOpportunityId: dealId,
-      });
-
-      await loadFeed();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    } finally {
-      setIsSeeding(false);
-    }
   };
 
   // The SDK cannot scroll to a position inside a record — no anchor, offset or
@@ -3249,16 +3132,6 @@ const ActivityFeed = () => {
             />
           )}
 
-          {SHOW_SEED_BUTTON && (
-            <ToolbarButton
-              label={isSeeding ? t('Creating…') : t('+ Test events')}
-              title={t('Creates a company, a contact and a deal and edits a field on each. Writes real records.')}
-              onClick={() => void seedTestEvents()}
-              background={palette.buttonBackground}
-              color={palette.textMid}
-            />
-          )}
-
         </div>
       </div>
 
@@ -3417,24 +3290,6 @@ const ActivityFeed = () => {
               </div>
             )}
 
-
-            {/* The feed is deliberately capped. Saying so beats a list that
-                just stops, and the total tells you how much history exists. */}
-            {!isLoading && allItems.length > 0 && feedTotal > allItems.length && (
-              <div
-                style={{
-                  padding: '14px 16px 4px',
-                  textAlign: 'center',
-                  fontSize: '0.85rem',
-                  color: palette.textLight,
-                }}
-              >
-                {t('Latest {loaded} of {total} events', {
-                  loaded: allItems.length,
-                  total: feedTotal,
-                })}
-              </div>
-            )}
 
           </>
         )}

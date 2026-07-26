@@ -1,71 +1,25 @@
 # The Bell
 
-Лента изменений и просроченных задач внутри Twenty. Кнопка-колокольчик в правом верхнем углу открывает боковую панель, где видно, что произошло в CRM и что висит лично на вас.
+An activity feed inside Twenty. A bell button in the top-right corner opens a side panel showing what happened in the CRM, what your team is talking about, and what is overdue on you personally.
 
-## Что умеет
+Русская версия: [README.ru.md](README.ru.md).
 
-- **Лента изменений.** Создание и правки записей из стандартного `timelineActivity` — включая кастомные объекты. Изменения полей показываются диффом, значения `SELECT` — теми же цветными лейблами, что и на карточке записи.
-- **Комментарии.** Заметка, привязанная к записи, попадает в ленту событием `linked-note` вместе со своим текстом.
-- **Документы.** Twenty не пишет событий о вложениях, поэтому панель читает их отдельным запросом. Они идут полосой в начале ленты и сгруппированы по записи: документ принадлежит сделке, контакту или кастомному объекту, поэтому островок возглавляет запись, а файлы стоят под ней.
-- **Группировка.** Несколько событий по одной записи схлопываются в одну строку со счётчиком, который разворачивается на месте. Пачка однотипных событий — импорт, массовая правка — собирается в строку вида «29 × документ · добавлен».
-- **Подгрузка.** Лента листается по курсору: внизу «Показать ещё» и счётчик «96 из 543». Опрос обновляет только верхнюю страницу и не сбрасывает подгруженное.
-- **Прочитано / непрочитано.** Отметка хранится персонально, по `userId`.
-- **Задачи.** Отдельный экран: сначала просроченные от самой давней, дальше по сроку. Выполненные скрыты.
-- **Переход к записи.** Клик открывает объект в боковой панели, не уводя со страницы.
+## What it does
 
-## Права доступа
+- **Change feed.** Records created and edited, read from the standard `timelineActivity` — custom objects included. Field changes render as a diff, and `SELECT` values keep the same coloured labels the record page uses.
+- **Documents.** Twenty emits no timeline event for an attachment, so the panel reads files separately. They lead the feed in their own strip, grouped by the record they belong to: a deal, a contact, a custom object.
+- **Buzz.** Team notes as posts with their comments underneath. Twenty has no comment object — amending a note's body is the mechanism — so each thread is reconstructed from the `note.updated` diffs, and every reply says who wrote it and when.
+- **Tasks.** Overdue first, oldest first, then everything else by due date. Done tasks are dropped. If a task belongs to a deal, the deal is on the row.
+- **Grouping.** Several events on one record collapse into a single line with a counter that expands in place. A burst of identical events — an import, a bulk edit — becomes one row like `29 × document · added`.
+- **Read / unread.** The marker is personal, stored per `userId` in the app's own object.
+- **Opens the record.** A click opens the object in Twenty's side panel without leaving the page.
 
-Панель ходит в API под ролью приложения, а не под правами открывшего её человека. Поэтому:
+## Requirements
 
-- на плане **Organization** работают row-level permissions — доступ ограничивает сам Twenty, и панель ничего не доотфильтровывает;
-- на остальных планах предикаты синхронизируются, но не применяются, и панель фильтрует сама — по владельцу сделки, ответственному за компанию и исполнителю задачи.
+- Twenty server **2.23.0 or later** (declared as `engines.twenty`)
+- Node 24 and Yarn 4 for local development
 
-Режим определяется в рантайме: панель запрашивает у сервера записи, которые он должен был скрыть, и по ответу понимает, включено ли разграничение. В интерфейсе это видно — либо переключатель «Мои / Все», либо метка «Права: сервер».
-
-**Клиентский фильтр не является границей безопасности.** Пока разграничение не включено, сервер отдаёт в браузер весь workspace. Ставьте приложение туда, где это допустимо.
-
-## Настройки
-
-| Переменная | Тип | Значение |
-| --- | --- | --- |
-| `POLL_INTERVAL_SECONDS` | число | 15 |
-| `PAGE_SIZE` | число | 50 |
-| `SHOW_ATTACHMENTS` | переключатель | вкл |
-| `SHOW_TIMELINE_RAIL` | переключатель | выкл |
-| `DEFAULT_SCOPE` | список | «Только связанное со мной» |
-| `SHOW_SEED_BUTTON` | переключатель | выкл |
-
-> **Вкладка Settings сейчас ни на что не влияет.** Хост подставляет фронт-компоненту
-> значения переменных **зашифрованными** — `enc:v2:<workspace>:<blob>` — и ни
-> `twenty-sdk`, ни `twenty-client-sdk` их не расшифровывают. Проверено выводом сырого
-> payload в самой панели: `getApplicationVariable('SHOW_ATTACHMENTS')` возвращает
-> строку с шифротекстом, а не `true`.
->
-> Поэтому нечитаемое значение трактуется как «не задано», и панель работает на
-> значениях из колонки выше — они зашиты в манифесте (`src/application-config.ts`).
-> Чтобы поменять поведение, правьте манифест и выполняйте `yarn twenty apply`;
-> переключатели в интерфейсе до расшифровки на стороне Twenty бесполезны.
->
-> Диагностировать это снаружи нельзя: metadata-API не отдаёт значения обратно —
-> под ключом API падает с `Cannot return null for non-nullable field
-> Application.applicationVariables`, под токеном приложения отвечает отказом по
-> правам. Записывать (`updateOneApplicationVariable`) при этом можно.
-
-Настройки общие на весь workspace — персональных в SDK нет. Личное хранится в объекте `feedReadState`.
-
-`SHOW_SEED_BUTTON` включает кнопку генерации тестовых данных. Она создаёт **настоящие** записи — компанию, контакт, сделку, комментарий и документ. Только для тестового workspace.
-
-## Чего лента не покажет
-
-Ограничения источника, а не приложения:
-
-- **удаления** — Twenty не пишет о них событий вообще;
-- **письма и встречи** — у `message` и `calendarEvent` нет связи с `timelineActivity`;
-- **историю удалённых записей** — событие остаётся, но ссылка обрывается, такие строки помечены «запись удалена».
-
-## Установка в свой Twenty
-
-Нужны Node 24 (версия в `.nvmrc`), Yarn 4 и работающий инстанс Twenty.
+## Install into your Twenty
 
 ```bash
 git clone https://github.com/frasimah/twenty_bells.git
@@ -74,46 +28,83 @@ corepack enable
 yarn install
 ```
 
-Дальше нужен API-ключ инстанса: в Twenty откройте **Settings → APIs → Create API key**
-и скопируйте значение — оно показывается один раз.
+You need an API key for the target instance: in Twenty open **Settings → APIs → Create API key** and copy the value — it is shown once.
 
 ```bash
-yarn twenty remote:add --as my-crm --url http://localhost:3000 --api-key <ВАШ_КЛЮЧ>
+yarn twenty remote:add --as my-crm --url https://your-twenty-server.com --api-key <YOUR_KEY>
 yarn twenty remote:use my-crm
 yarn twenty apply
 ```
 
-`--url` — адрес сервера Twenty, а не фронтенда, если они разнесены. Ключ ложится
-в `~/.twenty/config.json` и в репозиторий не попадает.
+`--url` is the **server** address, not the frontend, if the two are on different ports. The key is stored in `~/.twenty/config.json` and never reaches the repository.
 
-`apply` сначала показывает план (что будет создано), затем синхронизирует:
-приложение, роль, технический объект `feedReadState`, фронт-компонент и кнопку
-в командном меню. После этого перезагрузите вкладку CRM — колокольчик появится
-в правом верхнем углу.
+`apply` prints the plan first, then syncs the application, its role, the technical `feedReadState` object, the front component and the command-menu button. Reload the CRM tab afterwards — the bell appears in the top-right corner.
 
-Своего инстанса нет? `yarn twenty docker:start` поднимет локальный сервер на
-`http://localhost:2020`, вход `tim@apple.dev` / `tim@apple.dev` — тогда
-`remote:add --local` подхватит его сам.
+No instance of your own? `yarn twenty docker:start` brings one up on `http://localhost:2020` (`tim@apple.dev` / `tim@apple.dev`), and `remote:add --local` finds it by itself.
 
-Обновить приложение после `git pull` — тот же `yarn twenty apply`. Снять —
-`yarn twenty app:uninstall`.
+Updating after a `git pull` is the same `yarn twenty apply`. To remove the app, `yarn twenty app:uninstall`.
 
-## Getting started
+## Permissions
 
-Setup instructions live in [SETUP.md](SETUP.md).
+The panel calls the API under the **application's** role, not under the permissions of the person who opened it. So:
+
+- on the **Organization** plan row-level permissions apply — Twenty scopes the data itself and the panel adds no filtering of its own;
+- on other plans the predicates sync but stay inert, and the panel filters client-side: by deal owner, company account owner and task assignee.
+
+Which mode is live is detected at runtime: the panel asks the server for records it should have withheld and reads the answer. The UI shows the result — either a "Only mine" toggle or an "Access: server" badge.
+
+**The client-side filter is not a security boundary.** Until row-level permissions are enforced, the server hands the whole workspace to the browser. Install the app where that is acceptable.
+
+## Settings
+
+| Variable | Type | Value |
+| --- | --- | --- |
+| `POLL_INTERVAL_SECONDS` | number | 30 |
+| `PAGE_SIZE` | number | 50 |
+| `SHOW_ATTACHMENTS` | toggle | on |
+| `SHOW_TIMELINE_RAIL` | toggle | off |
+| `DEFAULT_SCOPE` | select | "Only what relates to me" |
+
+> **The Settings tab currently has no effect.** The host injects variable values into front components still **encrypted** — `enc:v2:<workspace>:<blob>` — and neither `twenty-sdk` nor `twenty-client-sdk` decrypts them. Verified by printing the raw payload inside the panel: `getApplicationVariable('SHOW_ATTACHMENTS')` returns the ciphertext, not `true`.
+>
+> An unreadable value is therefore treated as "not set", and the panel runs on the values above, which live in the manifest (`src/application-config.ts`). To change behaviour, edit the manifest and run `yarn twenty apply`. The toggles in the UI are useless until Twenty decrypts them.
+>
+> This cannot be diagnosed from outside either: the metadata API refuses to read the values back — an API key gets `Cannot return null for non-nullable field Application.applicationVariables`, the application token is denied by permissions. Writing (`updateOneApplicationVariable`) does work.
+
+Settings are workspace-wide; the SDK has no per-user ones. Anything personal lives in the app's `feedReadState` object.
+
+## What the feed cannot show
+
+Limits of the source, not of the app:
+
+- **deletions** — Twenty writes no event for them at all;
+- **emails and meetings** — `message` and `calendarEvent` have no relation to `timelineActivity`;
+- **history of deleted records** — the event survives but its link breaks; those rows are marked "record deleted".
+
+## Development
+
+```bash
+yarn lint        # oxlint
+yarn typecheck   # tsgo
+yarn test:unit   # vitest, no server needed
+yarn test        # integration tests against a real instance
+```
+
+CI runs all of it on every push against a Twenty instance spawned for the job. CD is manual (`workflow_dispatch`): the scaffold's deploy-on-push targeted `http://localhost:2020`, which from a GitHub runner is the runner itself.
 
 ## Publishing
 
-The `Publish` workflow (`.github/workflows/publish.yml`) publishes the app to npm with provenance using [npm trusted publishing](https://docs.npmjs.com/trusted-publishers). To publish:
+`Publish` (`.github/workflows/publish.yml`) publishes the package to npm with provenance via [npm trusted publishing](https://docs.npmjs.com/trusted-publishers), which is also how app ownership is claimed in a Twenty marketplace.
 
-1. On npmjs.com register this repository as a trusted publisher of your package, pointing at the `publish.yml` workflow.
-2. Bump the version in `package.json`, then push a version tag (e.g. `git tag v1.0.0 && git push --tags`) or run the workflow manually from the Actions tab.
+1. On npmjs.com register this repository and `publish.yml` as a trusted publisher of the package.
+2. Bump `version` in `package.json`, then push a tag (`git tag v1.0.1 && git push --tags`) or run the workflow from the Actions tab.
 
-## Changelog
+npm accepts provenance only from **public** repositories. To publish from a private one, set `TWENTY_APP_PUBLISH_DISABLE_PROVENANCE: 'true'` in the publish step — at the cost of the trust badge and of the marketplace ownership claim.
 
-Notable changes are documented in [CHANGELOG.md](CHANGELOG.md).
+The marketplace catalog syncs from npm hourly; `yarn twenty dev:catalog-sync` triggers it immediately.
 
 ## Learn more
 
 - [Twenty Apps documentation](https://docs.twenty.com/developers/extend/apps/getting-started/quick-start)
 - [twenty-sdk CLI reference](https://www.npmjs.com/package/twenty-sdk)
+- Changes are listed in [CHANGELOG.md](CHANGELOG.md).

@@ -15,6 +15,13 @@ export default defineApplication({
   // The pinned command button ignores its own `icon` (deprecated) and always
   // renders the application icon — so the bell has to live here.
   logo: 'public/logo.svg',
+  websiteUrl: 'https://github.com/frasimah/twenty_bells',
+  issueReportUrl: 'https://github.com/frasimah/twenty_bells/issues',
+  // `aboutDescription` is deliberately absent: without it the marketplace shows
+  // the package README from npm, so there is one text to keep current instead
+  // of two. `galleryImages` needs real screenshots of the panel — add them to
+  // public/ before the first marketplace release.
+  //
   // These land on the app's Settings tab, where a workspace admin edits them.
   // They are workspace-wide by design: anything personal (read marker, chosen
   // scope) belongs in the app's own records instead.
@@ -53,13 +60,6 @@ export default defineApplication({
         { label: 'Every record in the workspace', value: 'all' },
       ],
       value: 'mine',
-    },
-    SHOW_SEED_BUTTON: {
-      universalIdentifier: 'd2e9abda-6f4d-477f-be6f-82a21cccd589',
-      description:
-        'Show the test-data button. It writes real records — for a test workspace only',
-      type: FieldType.BOOLEAN,
-      value: false,
     },
   },
 });

@@ -1,13 +1,10 @@
 {
   " ": "",
-  "+ Test events": "+ Тестовые события",
   "Access: server": "Права: сервер",
   "By due date": "По сроку",
   "Collapse": "Свернуть",
   "Company": "Компания",
   "Could not load the feed: {error}": "Не удалось загрузить ленту: {error}",
-  "Creates a company, a contact and a deal and edits a field on each. Writes real records.": "Создаёт компанию, контакт и сделку и меняет каждой по полю. Пишет настоящие записи.",
-  "Creating…": "Создаю…",
   "Document": "Документ",
   "Documents": "Документы",
   "Earlier": "Ранее",

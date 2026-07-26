@@ -1,13 +1,30 @@
 {
   "name": "twenty-bells",
-  "version": "0.1.0",
+  "version": "1.0.0",
+  "description": "The Bell — an activity feed for Twenty: what changed in the workspace, team notes with their comments, documents, and the tasks that are overdue.",
   "license": "MIT",
+  "author": "DCode",
+  "homepage": "https://github.com/frasimah/twenty_bells#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/frasimah/twenty_bells.git"
+  },
+  "bugs": {
+    "url": "https://github.com/frasimah/twenty_bells/issues"
+  },
   "engines": {
     "node": "^24.5.0",
     "npm": "please-use-yarn",
-    "yarn": ">=4.0.2"
+    "yarn": ">=4.0.2",
+    "twenty": ">=2.23.0"
   },
-  "keywords": [],
+  "keywords": [
+    "twenty-app",
+    "twenty",
+    "crm",
+    "activity-feed",
+    "notifications"
+  ],
   "packageManager": "yarn@4.13.0",
   "scripts": {
     "twenty": "twenty",
