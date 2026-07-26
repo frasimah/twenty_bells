@@ -2212,8 +2212,7 @@ const ActivityFeed = () => {
         onMouseEnter={() => setHoveredCard(group.key)}
         onMouseLeave={() => setHoveredCard(null)}
         style={{
-          margin: '10px 12px',
-          paddingBottom: '12px',
+          margin: '16px 12px',
           border: `1px solid ${
             isRowHovered ? palette.cardHoverBorder : palette.border
           }`,
@@ -2230,12 +2229,30 @@ const ActivityFeed = () => {
           transition: 'background 140ms ease, border-color 140ms ease',
         }}
       >
-        {renderHead(head, unread, touchedAt)}
+        <div style={{ paddingBottom: '12px' }}>
+          {renderHead(head, unread, touchedAt)}
+        </div>
 
-        {attachments.length > 0 && (
+        {/* Everything filed under the record sits on the same tinted strip a
+            task card gives its comments: what happened above, what is attached
+            to it below. Two surfaces of one anatomy, so the feed and the other
+            tabs read as the same object. */}
+        {(attachments.length > 0 || rest.length > 0) && (
           <div
             style={{
-              padding: '5px 16px 0',
+              borderTop: `1px solid ${palette.border}`,
+              background: unread
+                ? 'transparent'
+                : colorScheme === 'dark'
+                  ? '#191919'
+                  : '#FAFAFA',
+              padding: '8px 0 10px',
+            }}
+          >
+            {attachments.length > 0 && (
+          <div
+            style={{
+              padding: '0 16px',
               marginLeft: SHOW_TIMELINE_RAIL ? '20px' : '0',
             }}
           >
@@ -2273,12 +2290,12 @@ const ActivityFeed = () => {
               );
             })}
           </div>
-        )}
+            )}
 
-        {rest.length > 0 && (
+            {rest.length > 0 && (
           <div
             style={{
-              padding: '6px 16px 0',
+              padding: attachments.length > 0 ? '8px 16px 0' : '0 16px',
               marginLeft: SHOW_TIMELINE_RAIL ? '20px' : '0',
             }}
           >
@@ -2308,9 +2325,12 @@ const ActivityFeed = () => {
                 : t('{count} more events on this record', { count: rest.length })}
             </button>
           </div>
-        )}
 
-        {isExpanded && rest.map(renderFollowUp)}
+            )}
+
+            {isExpanded && rest.map(renderFollowUp)}
+          </div>
+        )}
       </div>
     );
   };
