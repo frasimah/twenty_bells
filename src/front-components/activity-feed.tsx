@@ -373,6 +373,24 @@ const readContextBefore = (before: string, paragraphs = 2) => {
 const isRichTextValue = (value: unknown) =>
   value !== null && typeof value === 'object' && 'markdown' in value;
 
+// Buzz is an announcement board, not a document viewer. A note pasted out of a
+// spreadsheet arrives as a markdown table and fills the whole panel on its own,
+// pipes and all. The card carries the opening of it; the note is one click
+// away. Lines matter as much as characters — a table is short rows, a
+// paragraph is long ones, and either can run the card off the screen.
+const ANNOUNCE_MAX_LINES = 5;
+const ANNOUNCE_MAX_CHARS = 320;
+
+const announce = (text: string) => {
+  const byLine = text.split('\n').slice(0, ANNOUNCE_MAX_LINES).join('\n');
+  const clipped =
+    byLine.length > ANNOUNCE_MAX_CHARS
+      ? byLine.slice(0, ANNOUNCE_MAX_CHARS).trimEnd()
+      : byLine;
+
+  return clipped === text ? text : `${clipped}…`;
+};
+
 const truncate = (text: string, limit = 90) =>
   text.length > limit ? `${text.slice(0, limit).trimEnd()}…` : text;
 
@@ -2798,7 +2816,7 @@ const ActivityFeed = () => {
               overflowWrap: 'anywhere',
             }}
           >
-            {parsed.text}
+            {announce(parsed.text)}
           </div>
 
           {expandedComments.includes(editId) && (
@@ -2840,7 +2858,7 @@ const ActivityFeed = () => {
                   overflowWrap: 'anywhere',
                 }}
               >
-                {parsed.text}
+                {announce(parsed.text)}
               </div>
 
               <button
@@ -2955,7 +2973,7 @@ const ActivityFeed = () => {
                 overflowWrap: 'anywhere',
               }}
             >
-              {originalBody}
+              {announce(originalBody)}
             </div>
           )}
         </div>
