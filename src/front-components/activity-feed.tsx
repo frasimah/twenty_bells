@@ -16,6 +16,8 @@ import { RestApiClient } from 'twenty-client-sdk/rest';
 import { IconBrandGoogle, IconFile, IconLink } from 'twenty-ui/icon';
 
 import { ACTIVITY_FEED_FRONT_COMPONENT_UNIVERSAL_IDENTIFIER } from 'src/constants/universal-identifiers';
+// Pure text handling, kept out of here so it can be tested without the SDK.
+import { announce, flattenTables } from 'src/lib/announce';
 
 // These were application variables once, editable from the app's Settings tab.
 // The host injects such values into a front component still encrypted —
@@ -373,26 +375,13 @@ const readContextBefore = (before: string, paragraphs = 2) => {
 const isRichTextValue = (value: unknown) =>
   value !== null && typeof value === 'object' && 'markdown' in value;
 
-// Buzz is an announcement board, not a document viewer. A note pasted out of a
-// spreadsheet arrives as a markdown table and fills the whole panel on its own,
-// pipes and all. The card carries the opening of it; the note is one click
-// away. Lines matter as much as characters — a table is short rows, a
-// paragraph is long ones, and either can run the card off the screen.
-const ANNOUNCE_MAX_LINES = 5;
-const ANNOUNCE_MAX_CHARS = 320;
+// Ninety characters of a pasted table is ninety characters of pipes, so the
+// scaffolding comes out before anything is measured.
+const truncate = (text: string, limit = 90) => {
+  const flat = flattenTables(text);
 
-const announce = (text: string) => {
-  const byLine = text.split('\n').slice(0, ANNOUNCE_MAX_LINES).join('\n');
-  const clipped =
-    byLine.length > ANNOUNCE_MAX_CHARS
-      ? byLine.slice(0, ANNOUNCE_MAX_CHARS).trimEnd()
-      : byLine;
-
-  return clipped === text ? text : `${clipped}…`;
+  return flat.length > limit ? `${flat.slice(0, limit).trimEnd()}…` : flat;
 };
-
-const truncate = (text: string, limit = 90) =>
-  text.length > limit ? `${text.slice(0, limit).trimEnd()}…` : text;
 
 // A rich-text diff is two whole documents. Neither is worth printing in a feed
 // row — what changed is.
