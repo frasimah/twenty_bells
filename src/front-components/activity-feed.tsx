@@ -1191,47 +1191,76 @@ const ActivityFeed = () => {
     try {
       const client = new RestApiClient();
 
-      const [response, editsResponse, assignedResponse] = await Promise.all([
+      if (memberId === null) {
+        setTasks([]);
+        setTaskEdits([]);
+        setAssignedOpenCount(null);
+
+        return;
+      }
+
+      // Asked of the server, not sorted out afterwards. A page of twenty-five
+      // taken off eighteen hundred tasks by due date is twenty-five tasks
+      // belonging to whoever happens to be at the front of that queue: the
+      // reader's own could be absent from it entirely, and one with no due
+      // date sorts last and never appears at all.
+      const mine =
+        `status[neq]:DONE,or(assigneeId[eq]:${memberId},` +
+        `createdBy.workspaceMemberId[eq]:${memberId})`;
+
+      const [response, assignedResponse] = await Promise.all([
         // depth 0: the assignee is needed as a name, and `assigneeId` plus the
         // member map already give that — the nested record was four fifths of
         // this response.
-        client.get<{ data?: { tasks?: TimelineRecord[] } }>('/rest/tasks', {
+        client.get<Page<'tasks'>>('/rest/tasks', {
           query: {
+            filter: mine,
             limit: TAB_PAGE_SIZE,
             depth: 0,
             order_by: 'dueAt[AscNullsLast]',
           },
         }),
-        // A task body can be amended exactly like a note body, which is the
-        // only comment mechanism a task has — notes cannot be linked to tasks.
-        client.get<{ data?: { timelineActivities?: TimelineRecord[] } }>(
-          '/rest/timelineActivities',
-          {
-            query: {
-              filter: 'name[eq]:task.updated',
-              limit: TAB_PAGE_SIZE,
-              depth: 0,
-              order_by: 'happensAt[DescNullsLast]',
-            },
-          },
-        ),
         // The badge is a count, not a list: asking the server for one row and
         // reading `totalCount` costs under two kilobytes and is exact, where
         // counting the loaded page would top out at TAB_PAGE_SIZE.
-        memberId === null
-          ? Promise.resolve(null)
-          : client.get<Page<'tasks'>>('/rest/tasks', {
-              query: {
-                filter: `assigneeId[eq]:${memberId},status[neq]:DONE`,
-                limit: 1,
-                depth: 0,
-              },
-            }),
+        client.get<Page<'tasks'>>('/rest/tasks', {
+          query: {
+            filter: `assigneeId[eq]:${memberId},status[neq]:DONE`,
+            limit: 1,
+            depth: 0,
+          },
+        }),
       ]);
 
-      setTasks(response.data?.tasks ?? []);
-      setTaskEdits((editsResponse.data?.timelineActivities ?? []).reverse());
+      const mineOnPage = response.data?.tasks ?? [];
+
+      setTasks(mineOnPage);
       setAssignedOpenCount(assignedResponse?.totalCount ?? null);
+
+      // A task body can be amended exactly like a note body, which is the only
+      // comment mechanism a task has — notes cannot be linked to tasks. Asked
+      // for by task id: the newest twenty-five edits in the workspace are
+      // rarely the edits on these twenty-five tasks.
+      const ids = mineOnPage.map((task) => String(task.id));
+
+      if (ids.length === 0) {
+        setTaskEdits([]);
+
+        return;
+      }
+
+      const editsResponse = await client.get<{
+        data?: { timelineActivities?: TimelineRecord[] };
+      }>('/rest/timelineActivities', {
+        query: {
+          filter: `name[eq]:task.updated,targetTaskId[in]:[${ids.join(',')}]`,
+          limit: LINK_PAGE_SIZE,
+          depth: 0,
+          order_by: 'happensAt[DescNullsLast]',
+        },
+      });
+
+      setTaskEdits((editsResponse.data?.timelineActivities ?? []).reverse());
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
