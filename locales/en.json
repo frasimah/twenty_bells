@@ -12,6 +12,7 @@
   "Feed": "Feed",
   "Feed Read State": "Feed Read State",
   "Feed Read States": "Feed Read States",
+  "Load more of your open tasks": "Load more of your open tasks",
   "Load the previous page of events": "Load the previous page of events",
   "Loading…": "Loading…",
   "Mark all read": "Mark all read",
@@ -35,6 +36,7 @@
   "Show more": "Show more",
   "Show records": "Show records",
   "Show what this was written against": "Show what this was written against",
+  "Some of this could not be loaded — you are seeing less than there is.": "Some of this could not be loaded — you are seeing less than there is.",
   "Someone": "Someone",
   "Task": "Task",
   "Tasks": "Tasks",
@@ -73,5 +75,6 @@
   "{days}d overdue": "{days}d overdue",
   "{hidden} more comments": "{hidden} more comments",
   "{hours}h": "{hours}h",
-  "{minutes}m": "{minutes}m"
+  "{minutes}m": "{minutes}m",
+  "{shown} of {total}": "{shown} of {total}"
 }

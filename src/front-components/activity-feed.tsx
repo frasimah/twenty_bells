@@ -35,6 +35,10 @@ const POLL_INTERVAL_MS = 60 * 1000;
 // expensive polls in the app. Twenty-five of each is more than a side panel
 // shows before scrolling.
 const TAB_PAGE_SIZE = 25;
+// The tab pages like the feed does, and stops at the same ceiling. A hundred
+// open tasks is already more than anybody works through in a sitting; past
+// that the count tells the truth and the CRM's own list is the right tool.
+const TASK_LIMIT = 100;
 // A panel left open on a second screen should not poll all day. After this long
 // without a touch the loop goes quiet, and the next click inside the panel
 // wakes it and refreshes at once — so idle time costs a timer tick, not a
@@ -786,6 +790,25 @@ const ActivityFeed = () => {
   const [olderItems, setOlderItems] = useState<TimelineRecord[]>([]);
   const [isFeedExhausted, setIsFeedExhausted] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [taskLimit, setTaskLimit] = useState(TAB_PAGE_SIZE);
+  // How many open tasks are the reader's in total, straight from the server —
+  // the number the page is a slice of.
+  const [myTaskTotal, setMyTaskTotal] = useState(0);
+  // Which background loads are currently failing. Every one of them used to
+  // fail in silence, and the panel simply showed less: no documents, no chips,
+  // nobody's name. Both of the hardest bugs this app has had were invisible
+  // for exactly that reason.
+  const [degraded, setDegraded] = useState<string[]>([]);
+
+  const noteFailure = useCallback((scope: string) => {
+    setDegraded((scopes) => (scopes.includes(scope) ? scopes : [...scopes, scope]));
+  }, []);
+
+  const noteSuccess = useCallback((scope: string) => {
+    setDegraded((scopes) =>
+      scopes.includes(scope) ? scopes.filter((s) => s !== scope) : scopes,
+    );
+  }, []);
   // Files are refreshed with the links rather than on every poll: a hundred
   // attachments at depth 1 is a quarter-megabyte of JSON, and a document that
   // appears half a minute later is nobody's emergency.
@@ -969,8 +992,10 @@ const ActivityFeed = () => {
           ),
         ),
       );
+      noteSuccess('object labels');
     } catch {
-      // Without labels the feed falls back to raw object names.
+      // The feed falls back to raw object names, and says so.
+      noteFailure('object labels');
     }
   }, []);
 
@@ -1044,8 +1069,11 @@ const ActivityFeed = () => {
       });
 
       setMyCompanyIds((companies.data?.companies ?? []).map((c) => c.id));
+      noteSuccess('viewer');
     } catch {
-      // Without a resolved member the panel falls back to showing everything.
+      // Without a resolved member nothing can be judged relevant, so the panel
+      // shows nothing at all — which has to be said out loud.
+      noteFailure('viewer');
     }
   }, [userId]);
 
@@ -1092,8 +1120,9 @@ const ActivityFeed = () => {
 
       setTaskTargets(taskResponse.data?.taskTargets ?? []);
       setNoteTargets(noteResponse.data?.noteTargets ?? []);
+      noteSuccess('links');
     } catch {
-      // Missing links only cost the chips, so a failure here stays silent.
+      noteFailure('links');
     }
   }, []);
 
@@ -1160,8 +1189,9 @@ const ActivityFeed = () => {
       }
 
       setCompanyDeals(live);
+      noteSuccess('context');
     } catch {
-      // No context is a missing chip, never a broken card.
+      noteFailure('context');
     }
   }, []);
 
@@ -1182,8 +1212,9 @@ const ActivityFeed = () => {
       setDocumentItems(
         (response.data?.attachments ?? []).map(toAttachmentEvent),
       );
+      noteSuccess('documents');
     } catch {
-      // The strip stays empty; the change feed is unaffected.
+      noteFailure('documents');
     }
   }, []);
 
@@ -1215,7 +1246,7 @@ const ActivityFeed = () => {
         client.get<Page<'tasks'>>('/rest/tasks', {
           query: {
             filter: mine,
-            limit: TAB_PAGE_SIZE,
+            limit: taskLimit,
             depth: 0,
             order_by: 'dueAt[AscNullsLast]',
           },
@@ -1235,6 +1266,7 @@ const ActivityFeed = () => {
       const mineOnPage = response.data?.tasks ?? [];
 
       setTasks(mineOnPage);
+      setMyTaskTotal(response.totalCount ?? mineOnPage.length);
       setAssignedOpenCount(assignedResponse?.totalCount ?? null);
 
       // A task body can be amended exactly like a note body, which is the only
@@ -1264,7 +1296,7 @@ const ActivityFeed = () => {
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, [memberId]);
+  }, [memberId, taskLimit]);
 
   // Buzz: notes as posts, and every later edit of a note body as a comment.
   // Twenty has no comment object — amending the note text is the mechanism —
@@ -1326,8 +1358,9 @@ const ActivityFeed = () => {
 
       setReadStateId(state?.id ?? null);
       setLastSeenAt(state?.lastSeenAt ?? null);
+      noteSuccess('read marker');
     } catch {
-      // A missing read state just means everything reads as unread.
+      noteFailure('read marker');
     }
   }, [userId]);
 
@@ -3441,6 +3474,24 @@ const ActivityFeed = () => {
         onScroll={markActive}
         style={{ flex: 1, overflowY: 'auto', paddingBottom: '12px' }}
       >
+        {/* Not an error page: the panel keeps working on what it did get. But
+            a background load that fails in silence looks exactly like a
+            workspace where nothing happened, and that is how the worst of this
+            app's bugs stayed hidden. */}
+        {degraded.length > 0 && (
+          <div
+            title={degraded.join(', ')}
+            style={{
+              padding: '8px 16px',
+              fontSize: '0.85rem',
+              color: '#D45453',
+              borderBottom: `1px solid ${palette.border}`,
+            }}
+          >
+            {t('Some of this could not be loaded — you are seeing less than there is.')}
+          </div>
+        )}
+
         {isPaused && (
           <div
             style={{
@@ -3577,6 +3628,44 @@ const ActivityFeed = () => {
                 }}
               >
                 {t('No open tasks.')}
+              </div>
+            )}
+
+            {/* The list is a page of a longer list, and used to end without
+                saying so: the badge said forty-nine and the tab showed
+                twenty-five. Either there is more to load, or the count says
+                how much is left over. */}
+            {openTasks.length > 0 && myTaskTotal > openTasks.length && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  padding: '14px 16px 4px',
+                }}
+              >
+                {taskLimit < TASK_LIMIT && (
+                  <ToolbarButton
+                    label={t('Show more')}
+                    title={t('Load more of your open tasks')}
+                    onClick={() =>
+                      setTaskLimit((limit) =>
+                        Math.min(limit + TAB_PAGE_SIZE, TASK_LIMIT),
+                      )
+                    }
+                    background={palette.buttonBackground}
+                    color={palette.textMid}
+                  />
+                )}
+                <span
+                  style={{ fontSize: '0.85rem', color: palette.textLight }}
+                >
+                  {t('{shown} of {total}', {
+                    shown: openTasks.length,
+                    total: myTaskTotal,
+                  })}
+                </span>
               </div>
             )}
           </>

@@ -12,6 +12,7 @@
   "Feed": "Лента",
   "Feed Read State": "Отметка прочтения",
   "Feed Read States": "Отметки прочтения",
+  "Load more of your open tasks": "Загрузить ещё ваших открытых задач",
   "Load the previous page of events": "Загрузить предыдущую страницу событий",
   "Loading…": "Загружаю…",
   "Mark all read": "Прочитано",
@@ -35,6 +36,7 @@
   "Show more": "Показать ещё",
   "Show records": "Показать записи",
   "Show what this was written against": "Показать, к какому месту это написано",
+  "Some of this could not be loaded — you are seeing less than there is.": "Часть данных не загрузилась — вы видите не всё.",
   "Someone": "Кто-то",
   "Task": "Задача",
   "Tasks": "Задачи",
@@ -73,5 +75,6 @@
   "{days}d overdue": "просрочено на {days} дн",
   "{hidden} more comments": "ещё {hidden} комментариев",
   "{hours}h": "{hours} ч",
-  "{minutes}m": "{minutes} мин"
+  "{minutes}m": "{minutes} мин",
+  "{shown} of {total}": "{shown} из {total}"
 }
