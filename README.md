@@ -26,7 +26,7 @@ The trade is latency: a new event surfaces within a minute rather than instantly
 
 ## Requirements
 
-- Twenty server **2.20.0 or later** (declared as `engines.twenty`). CI installs the app and runs the integration tests against both ends of that range on every push, so the floor is a tested promise rather than a guess. 2.19 is genuinely out: it requires a custom object to spell out its own system fields, which the server has filled in itself since 2.20.
+- Twenty server **2.20.0 or later** (declared as `engines.twenty`). CI installs the app and runs the integration tests against both ends of that range on every push, so the floor is a tested promise rather than a guess. What is tested is installing the app, not the panel: on Twenty 2.35 and later the feed tabs currently fail (see [Troubleshooting](#troubleshooting)). 2.19 is genuinely out: it requires a custom object to spell out its own system fields, which the server has filled in itself since 2.20.
 - Node 24 and Yarn 4 for local development
 
 ## Install into your Twenty
@@ -43,16 +43,33 @@ You need an API key for the target instance: in Twenty open **Settings → APIs 
 ```bash
 yarn twenty remote:add --as my-crm --url https://your-twenty-server.com --api-key <YOUR_KEY>
 yarn twenty remote:use my-crm
-yarn twenty apply
 ```
 
 `--url` is the **server** address, not the frontend, if the two are on different ports. The key is stored in `~/.twenty/config.json` and never reaches the repository.
 
-`apply` prints the plan first, then syncs the application, its role, the technical `feedReadState` object, the front component and the command-menu button. Reload the CRM tab afterwards — the bell appears in the top-right corner.
+What happens next depends on whether you are installing the app or developing it.
 
-No instance of your own? `yarn twenty docker:start` brings one up on `http://localhost:2020` (`tim@apple.dev` / `tim@apple.dev`), and `remote:add --local` finds it by itself.
+**Installing it:** `yarn twenty app:install`. It is the command-line counterpart of the **Install** button in the marketplace (Settings → Applications), and it installs the version published to npm, not the files in your working tree. If the server does not know the app yet, run `yarn twenty dev:catalog-sync`, give it a minute and repeat. In the marketplace itself third-party apps sit behind the **Vetted only** filter — switch it off to see The Bell.
 
-Updating after a `git pull` is the same `yarn twenty apply`. To remove the app, `yarn twenty app:uninstall`.
+**Developing it, or installing your own build:** `yarn twenty apply`. It prints the plan first, then syncs the application, its role, the technical `feedReadState` object, the front component and the command-menu button. Reload the CRM tab afterwards — the bell appears in the top-right corner.
+
+`apply` belongs to the workspace that **owns the app's registration**. Since Twenty 2.37.5 `dev`, `plan` and `apply` are refused for anyone else, and a server's marketplace catalog imports every npm package tagged `twenty-app` — this one included — *without an owner*. On a server where the catalog got there first, the first `apply` stops with "claimed by no workspace"; see [Troubleshooting](#troubleshooting).
+
+No instance of your own? `yarn twenty docker:start` brings one up on `http://localhost:2020` (`tim@apple.dev` / `tim@apple.dev`), and `remote:add --local` finds it by itself. Nobody has registered the app there, so `apply` just works.
+
+When a newer version is published, run `yarn twenty app:install` again — the server refuses to install the version it already has. An owner building from a clone runs `yarn twenty apply` after a `git pull` instead. To remove the app, `yarn twenty app:uninstall`.
+
+## Troubleshooting
+
+**`"…" is registered on this instance but claimed by no workspace. Claim its ownership before developing on it.`** — `apply` was refused because the server's catalog imported the app first. If you only want to use the app, run `yarn twenty app:install` instead. If you are the author and need `apply`, claim the registration: a server admin does it in **Settings → Admin Panel → Apps → The Bell → Claim ownership**; anyone else in **Settings → Applications → Developer → Claim with GitHub**, which needs the published version to carry an npm provenance attestation and, on a self-hosted server, `APP_CLAIM_GITHUB_CLIENT_ID` and `APP_CLAIM_GITHUB_CLIENT_SECRET`. Details in [Registration ownership](https://docs.twenty.com/developers/extend/apps/operations/publishing#registration-ownership).
+
+**`"…" is registered to another workspace.`** — another workspace on the same instance owns the registration. Install with `yarn twenty app:install`, or ask the owner to transfer it. Changing `universalIdentifier` makes a different app; it is the answer for a fork, not for this.
+
+**`Upload failed: duplicate key value violates unique constraint "IDX_APPLICATION_REGISTRATION_UNIVERSAL_IDENTIFIER_UNIQUE"`** — from `yarn twenty app:publish --private`, and so from the manual CD workflow. The registration already exists because the catalog imported it, and Twenty reports that as a raw database error. Claim it, or use `app:install`.
+
+**`File content does not match its extension … 'png'`** during the first `apply` after the server started — a race in Twenty's upload check, not a problem with the files. Run `apply` again.
+
+**`Could not load the feed: … status 400`** on Twenty 2.35 and later — `timelineActivity` no longer has the `name` field the panel filters on. Tracked in [#1](https://github.com/frasimah/twenty_bells/issues/1), with a fix proposed in [#2](https://github.com/frasimah/twenty_bells/pull/2).
 
 ## Permissions
 

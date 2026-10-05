@@ -8,6 +8,13 @@ name: CD
 # Local deploys are `yarn twenty apply`. This workflow stays for the day the app
 # targets a server reachable from the internet: run it by hand, pass that
 # server's URL, and store its API key as the TWENTY_DEPLOY_API_KEY secret.
+#
+# The deploy registers the app on the server, so it fails when a registration
+# already exists that this workspace does not own — typically because the
+# server's marketplace catalog imported the npm package first. The error is a
+# raw `duplicate key value violates unique constraint
+# "IDX_APPLICATION_REGISTRATION_UNIVERSAL_IDENTIFIER_UNIQUE"`. Claim the app
+# first (README → Troubleshooting) or install the published version instead.
 on:
   workflow_dispatch:
     inputs:

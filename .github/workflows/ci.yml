@@ -19,10 +19,15 @@ jobs:
     # Both ends of the supported range. The floor is what `engines.twenty`
     # promises, and self-hosted instances sit on it for months — a promise
     # nothing tests is a promise waiting to break.
+    #
+    # These are Docker Hub tags of `twentycrm/twenty-app-dev`, and the release
+    # tags carry the `v`. A bare `2.20.0` is not an image: the floor job died
+    # in the "Spawn Twenty test instance" step, before the app was touched, for
+    # as long as the matrix said so.
     strategy:
       fail-fast: false
       matrix:
-        twenty-version: ['2.20.0', 'latest']
+        twenty-version: ['v2.20.0', 'latest']
     name: test (twenty ${{ matrix.twenty-version }})
     steps:
       - name: Checkout

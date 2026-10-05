@@ -4,6 +4,8 @@ import * as path from 'path';
 
 import { appDevOnce, appUninstall } from 'twenty-sdk/cli';
 
+import { isUploadRace, retryOnTransient } from './sync-retry';
+
 const APP_PATH = process.cwd();
 const CONFIG_DIR = path.join(os.homedir(), '.twenty');
 
@@ -64,10 +66,14 @@ export async function setup() {
 
   await appUninstall({ appPath: APP_PATH }).catch(() => {});
 
-  const result = await appDevOnce({
-    appPath: APP_PATH,
-    onProgress: (message: string) => console.log(`[dev] ${message}`),
-  });
+  const result = await retryOnTransient(
+    () =>
+      appDevOnce({
+        appPath: APP_PATH,
+        onProgress: (message: string) => console.log(`[dev] ${message}`),
+      }),
+    { attempts: 3, delayMs: 3_000, isTransient: isUploadRace },
+  );
 
   if (!result.success) {
     throw new Error(
